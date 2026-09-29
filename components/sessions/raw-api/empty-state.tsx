@@ -32,6 +32,7 @@ export function CapturesEmptyState({ available }: { available: boolean }) {
         </p>
         <pre className="mx-auto rounded-md bg-muted px-3 py-2 text-left text-xs font-mono text-muted-foreground">
           {`export ANTHROPIC_BASE_URL=http://localhost:<proxy-port>
+export ENABLE_TOOL_SEARCH=true
 export ANTHROPIC_API_KEY=sk-ant-...
 claude --resume`}
         </pre>

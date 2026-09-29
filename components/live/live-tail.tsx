@@ -48,7 +48,7 @@ function statusTone(status: number | null, error: string | null): string {
 }
 
 function CommandSnippet({ port }: { port: number }) {
-  const cmd = `ANTHROPIC_BASE_URL=http://localhost:${port} claude`
+  const cmd = `ENABLE_TOOL_SEARCH=true ANTHROPIC_BASE_URL=http://localhost:${port} claude`
   const [copied, setCopied] = useState(false)
   return (
     <div className="flex items-center gap-2">

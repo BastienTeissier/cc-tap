@@ -17,7 +17,7 @@ interface ProxyStatus {
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 function connectCommand(port: number): string {
-  return `ANTHROPIC_BASE_URL=http://localhost:${port} claude`
+  return `ENABLE_TOOL_SEARCH=true ANTHROPIC_BASE_URL=http://localhost:${port} claude`
 }
 
 function CopyButton({ text }: { text: string }) {

@@ -58,7 +58,7 @@ The CLI finds a free local port, starts the dashboard, and opens it in your brow
 
 ![Live Capture page](./public/live-capture.png)
 
-- Click **Live Capture** in the top bar → **Start**, then run `ANTHROPIC_BASE_URL=http://localhost:<port> claude` in a new terminal — the snippet (with the right port) is copyable from the popover.
+- Click **Live Capture** in the top bar → **Start**, then run `ENABLE_TOOL_SEARCH=true ANTHROPIC_BASE_URL=http://localhost:<port> claude` in a new terminal — the snippet (with the right port) is copyable from the popover.
 - The **Live** page shows a real-time tail of every Anthropic API request with a side-by-side anatomy view: system prompt with cache breakpoints, tool schemas, message history, raw SSE response.
 - Captures are correlated to JSONL sessions automatically and also surface under a **Raw API** tab on each session page; data is gzipped to `~/.cc-lens/payloads/` with a SQLite index.
 

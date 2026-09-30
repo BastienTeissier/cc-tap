@@ -131,9 +131,17 @@ export interface SessionSlice extends SessionMetrics {
   partial: boolean
 }
 
+/** A model the pricing table has no entry for, and the entry whose rates it was charged at */
+export interface UnpricedModel {
+  model: string
+  priced_as: string
+}
+
 export interface SessionWithFacet extends SessionMeta {
   facet?: Facet
   estimated_cost: number
+  /** Models in model_usage priced at another entry's rates, so estimated_cost is an estimate */
+  unpriced_models?: UnpricedModel[]
   slug?: string
   ai_title?: string
   version?: string
@@ -360,6 +368,9 @@ export interface ModelCostBreakdown {
   estimated_cost: number
   cache_savings: number
   cache_hit_rate: number
+  /** Set when the pricing table has no entry for this model's release: the
+   *  entry whose rates were used instead, so the cost is an estimate */
+  priced_as?: string
 }
 
 export interface DailyCost {

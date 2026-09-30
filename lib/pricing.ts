@@ -1,4 +1,5 @@
-import type { TurnUsage, ModelUsage, SessionMeta } from '@/types/claude'
+import type { TurnUsage, ModelUsage, SessionMeta, UnpricedModel } from '@/types/claude'
+import { parseModel } from '@/lib/model-label'
 
 interface ModelPricing {
   input: number
@@ -126,20 +127,39 @@ function matchesPricingKey(model: string, key: string): boolean {
 /** Priced when no model is known: an unrecognised id, or a session whose assistant lines carry no model */
 export const FALLBACK_MODEL = 'claude-opus-4-8'
 
-/** True when we have an exact or prefix pricing entry for this model (vs the fallback guess). */
+/** The pricing entry whose rates this model is charged at: its own, the
+ *  longest prefix entry, or FALLBACK_MODEL when nothing matches. */
+export function pricedAs(model: string): string {
+  const table = getPricingTable()
+  if (table[model]) return model
+  return cachedKeysLongestFirst.find(key => matchesPricingKey(model, key)) ?? FALLBACK_MODEL
+}
+
+/** True when the table has an entry for this model's own release, so its
+ *  cost is not an estimate. A prefix entry only counts when it names the
+ *  same release: claude-opus-4-5-20251101 is claude-opus-4-5's, while
+ *  claude-opus-5-5 merely borrows claude-opus-5's rates. */
 export function hasKnownPricing(model: string): boolean {
   const table = getPricingTable()
   if (table[model]) return true
-  return cachedKeysLongestFirst.some(key => matchesPricingKey(model, key))
+  const release = parseModel(model)
+  return cachedKeysLongestFirst.some(key => {
+    if (!matchesPricingKey(model, key)) return false
+    const keyRelease = parseModel(key)
+    return !release || !keyRelease ||
+      (release.family === keyRelease.family && release.version === keyRelease.version)
+  })
+}
+
+/** The models of a usage map that hasKnownPricing rejects, with the entry each was charged at */
+export function unpricedModels(usage: Record<string, ModelUsage> | undefined): UnpricedModel[] {
+  return Object.keys(usage ?? {})
+    .filter(model => model !== '<synthetic>' && !hasKnownPricing(model))
+    .map(model => ({ model, priced_as: pricedAs(model) }))
 }
 
 function getPricing(model: string): ModelPricing {
-  const table = getPricingTable()
-  if (table[model]) return table[model]
-  for (const key of cachedKeysLongestFirst) {
-    if (matchesPricingKey(model, key)) return table[key]
-  }
-  return table[FALLBACK_MODEL]
+  return getPricingTable()[pricedAs(model)]
 }
 
 export function estimateCostFromUsage(model: string, usage: TurnUsage): number {

@@ -1,5 +1,5 @@
 /* The human-readable proof: a markdown report of every mode vs the baseline. */
-import { CATEGORIES, VOLATILE_FIELDS, formatDiffs, type Category, type Diff } from './compare'
+import { CATEGORIES, VOLATILE_FIELDS, formatGitDiff, type Category, type Diff } from './compare'
 import { MODE_SETUP, PROMPT, type Mode, type RunResult } from './run-claude'
 
 export interface ModeResult {
@@ -72,7 +72,10 @@ export function buildReport({ claudeVersion, baseline, results }: { claudeVersio
     L.push('| Field | Result | First difference |', '|---|---|---|')
     for (const c of CATEGORIES) L.push(`| ${c} | ${verdict(r, c)} | ${firstDifference(r.diffs.filter(d => d.category === c))} |`)
     L.push('')
-    if (r.diffs.length) L.push('<details><summary>Full diff</summary>', '', '```', formatDiffs(r.diffs), '```', '', '</details>', '')
+    if (r.diffs.length) {
+      L.push('<details><summary>Full diff</summary>', '', '`-` baseline (no cc-tap), `+` what cc-tap stored.', '')
+      L.push('```diff', formatGitDiff(r.diffs), '```', '', '</details>', '')
+    }
   }
 
   L.push('## Normalized fields', '')

@@ -29,7 +29,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { FINAL_TEXT, THINKING_SIGNATURE, THINKING_TEXT, TOOL_USE_ID, startFakeAnthropic, type FakeAnthropic } from './fake-anthropic'
 import { runClaude, type Mode, type RunResult } from './run-claude'
-import { CATEGORIES, attemptsFromCaptures, attemptsFromWire, diffAttempts, formatDiffs, type Category, type Diff } from './compare'
+import { CATEGORIES, attemptsFromCaptures, attemptsFromWire, diffAttempts, formatGitDiff, type Category, type Diff } from './compare'
 import { buildReport, type ModeResult } from './report'
 
 const CLAUDE = process.env.CLAUDE_BIN || 'claude'
@@ -143,7 +143,7 @@ describe.each(MODES)('cc-tap %s capture vs baseline', mode => {
       return
     }
     if (found.length > 0) {
-      throw new Error(`${mode}: stored capture differs from the baseline wire traffic on "${category}":\n${formatDiffs(found)}`)
+      throw new Error(`${mode}: stored capture differs from the baseline wire traffic on "${category}" (- baseline, + capture):\n${formatGitDiff(found)}`)
     }
   })
 })

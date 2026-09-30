@@ -221,32 +221,50 @@ function showValue(v: unknown): string {
   return v === undefined ? '(absent)' : clip(JSON.stringify(v))
 }
 
-/** Line-level view of two long strings: what each side has that the other lacks. */
-function showText(a: string, b: string): string[] {
-  const la = a.split('\n')
-  const lb = b.split('\n')
-  const setA = new Set(la)
-  const setB = new Set(lb)
-  const minus = la.filter(l => !setB.has(l))
-  const plus = lb.filter(l => !setA.has(l))
-  const out = [
-    ...minus.slice(0, 12).map(l => `      - ${clip(l, 200)}`),
-    ...(minus.length > 12 ? [`      - … ${minus.length - 12} more lines`] : []),
-    ...plus.slice(0, 12).map(l => `      + ${clip(l, 200)}`),
-    ...(plus.length > 12 ? [`      + … ${plus.length - 12} more lines`] : []),
-  ]
-  return out.length ? out : ['      (same lines, different order or whitespace)']
+/** Changed lines of `a` → `b` in order (longest common subsequence), unchanged lines dropped. */
+function changedLines(a: string[], b: string[]): string[] {
+  const n = a.length
+  const m = b.length
+  const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+  }
+  const out: string[] = []
+  let i = 0
+  let j = 0
+  while (i < n || j < m) {
+    if (i < n && j < m && a[i] === b[j]) { i++; j++ }
+    else if (j >= m || (i < n && lcs[i + 1][j] >= lcs[i][j + 1])) out.push(`-${a[i++]}`)
+    else out.push(`+${b[j++]}`)
+  }
+  return out
 }
 
-export function formatDiffs(diffs: Diff[]): string {
+/** Lines of a value for a line diff: text split on newlines, a list of strings one item per line. */
+function asLines(v: unknown): string[] | null {
+  if (typeof v === 'string' && v.includes('\n')) return v.split('\n')
+  if (Array.isArray(v) && v.every(x => typeof x === 'string')) return v as string[]
+  return null
+}
+
+/** The diffs as the body of a ```diff block: `-` baseline, `+` capture, one `#` header per field. */
+export function formatGitDiff(diffs: Diff[]): string {
   const lines: string[] = []
   for (const d of diffs) {
     const where = d.attempts[0] === -1 ? '' : ` [attempt ${d.attempts.join(', ')}]`
-    lines.push(`  ${d.category}: ${d.path}${where}`)
-    if (typeof d.baseline === 'string' && typeof d.capture === 'string' && (d.baseline.includes('\n') || d.capture.includes('\n'))) {
-      lines.push('    lines only in baseline (-) / only in capture (+):', ...showText(d.baseline, d.capture))
+    if (lines.length) lines.push('')
+    lines.push(` # ${d.category}: ${d.path}${where}`)
+    const a = d.baseline === undefined ? [] : asLines(d.baseline)
+    const b = d.capture === undefined ? [] : asLines(d.capture)
+    if (a && b && (a.length || b.length)) {
+      // Betas arrive as "only in baseline" / "only in capture", so every line is a change.
+      const changed = changedLines(a, b).map(l => clip(l, 200))
+      const minus = changed.filter(l => l.startsWith('-'))
+      const plus = changed.filter(l => l.startsWith('+'))
+      lines.push(...minus.slice(0, 12), ...(minus.length > 12 ? [`-… ${minus.length - 12} more lines`] : []))
+      lines.push(...plus.slice(0, 12), ...(plus.length > 12 ? [`+… ${plus.length - 12} more lines`] : []))
     } else {
-      lines.push(`    baseline: ${showValue(d.baseline)}`, `    capture:  ${showValue(d.capture)}`)
+      lines.push(`-${showValue(d.baseline)}`, `+${showValue(d.capture)}`)
     }
   }
   return lines.join('\n')

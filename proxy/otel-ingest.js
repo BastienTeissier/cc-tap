@@ -1,31 +1,37 @@
 #!/usr/bin/env node
-/* cc-lens OpenTelemetry ingester — capture without a proxy
+/* cc-lens OpenTelemetry ingester — the default Live Capture mode
  * Claude Code keeps talking to api.anthropic.com and writes each API call's
- * bodies itself (OTEL_LOG_RAW_API_BODIES=file:<dir>): <id>.request.json when a
- * request is sent, <request-id>.response.json + one index.jsonl line when its
- * response completes. This tails that index and records each call in the same
- * captures table + payload layout as the proxy, so the dashboard works as is.
+ * bodies itself when run with OTEL_LOG_RAW_API_BODIES=file:<dir>:
+ * <body-id>.request.json as each attempt is sent, <request-id>.response.json
+ * plus one index.jsonl line when a response completes. This tails that index
+ * into the same captures table + payload layout as the proxy, so the dashboard
+ * works as is, then deletes the files it has ingested (Claude Code never does).
  *
- * Optionally it also receives Claude Code's OTLP/HTTP JSON log events (default
- * :4318) to fill what the files lack: api_request → duration_ms, api_error →
- * status code of a call that failed for good.
+ * The session JSONL fills what the export lacks (see session-log.js): thinking
+ * text, which the export writes as "<REDACTED>", and failed attempts, which
+ * leave a request body with no response. A failure line is matched to such a
+ * body by session and time; a body nobody claims within the grace period is
+ * recorded as interrupted.
  *
- * What this mode cannot see, by construction (see the OTel section of the README):
- * HTTP headers, the SSE stream itself (the response is the final message, and
- * is re-serialized here as a synthetic SSE stream), thinking text (Claude Code
- * writes "<REDACTED>"), the status of retried attempts, non-/v1/messages calls.
+ * Not visible in this mode: HTTP headers, the SSE stream as sent on the wire
+ * (streamed responses are re-serialized from the final message and marked as
+ * such), and calls other than /v1/messages.
  */
-const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const crypto = require('node:crypto')
 const zlib = require('node:zlib')
 const { parseRequestSummary, parseSseUsage, parseNonStreamUsage, gzipWrite, openStore } = require('./capture-store')
+const { createSessionLogs, describeFailure, restoreMessage, restoreRequest } = require('./session-log')
 
 // Claude Code writes this placeholder instead of the real `cch=` hash in the bodies it logs.
 const CCH_PLACEHOLDER = '00000'
 const SYNTHETIC_SSE_NOTE = ': cc-tap otel-ingest: synthesized from the final message Claude Code logged, not the wire stream\n\n'
-const ORPHAN_ERROR = 'no response recorded: attempt failed, was retried or aborted (OTel exports no status for it)'
+const ORPHAN_ERROR = 'no response recorded: the request was interrupted or aborted'
+const MISSING_RESPONSE_ERROR = 'response file missing or unreadable'
+const INDEX = 'index.jsonl'
+const ROTATED = /^index-\d+\.jsonl$/
 
 // ─── pure helpers ────────────────────────────────────────────────────────────
 
@@ -68,63 +74,82 @@ function messageToSse(msg) {
   return SYNTHETIC_SSE_NOTE + events.join('')
 }
 
-/** Flattens an OTLP/HTTP JSON logs payload into { name, attrs, timeMs } records. */
-function otlpLogRecords(payload) {
-  const out = []
-  for (const rl of payload?.resourceLogs ?? []) {
-    for (const sl of rl.scopeLogs ?? []) {
-      for (const r of sl.logRecords ?? []) {
-        const attrs = {}
-        for (const kv of r.attributes ?? []) {
-          const v = kv.value ?? {}
-          const raw = v.stringValue ?? v.intValue ?? v.doubleValue ?? v.boolValue
-          // OTLP JSON encodes int64 as strings; numeric-looking values come back as numbers.
-          attrs[kv.key] = v.intValue !== undefined ? Number(raw) : raw
-        }
-        const name = attrs['event.name'] ?? String(r.body?.stringValue ?? '').replace(/^claude_code\./, '')
-        const timeMs = r.timeUnixNano ? Number(BigInt(r.timeUnixNano) / 1_000_000n) : Date.now()
-        out.push({ name, attrs, timeMs })
-      }
-    }
-  }
-  return out
-}
-
 const idFromFile = (file, suffix) => (typeof file === 'string' && file.endsWith(suffix) ? path.basename(file, suffix) : null)
+const sha1 = buf => crypto.createHash('sha1').update(buf).digest('hex')
+const unlinkQuiet = abs => { try { fs.unlinkSync(abs) } catch { /* already gone */ } }
 
 // ─── ingester ────────────────────────────────────────────────────────────────
 
 /**
  * Stateful ingester over one bodies dir. Every write is an INSERT OR REPLACE
- * keyed by Claude Code's request_body_id, so replaying the whole index (e.g.
- * on restart) is idempotent and a later, better answer overwrites an earlier one.
+ * keyed by Claude Code's request body id, so replaying an index (after a
+ * restart, or a line retried) is idempotent and a later, better answer (a
+ * response for a body first recorded as failed) overwrites an earlier one.
+ *
+ * - fileWaitMs: how long an index line may wait for its files to be complete
+ *   (Claude Code writes the response file and the index line concurrently).
+ * - thinkingWaitMs: how long it may wait for the session JSONL to hold the
+ *   thinking the export redacted.
+ * - graceMs: how long a body without a response stays unclaimed (Claude Code's
+ *   API timeout is 10 min) before it is recorded as interrupted and deleted.
  */
-function createIngester({ store, bodiesDir, orphanGraceMs = 120_000, log = () => {} }) {
-  const indexPath = path.join(bodiesDir, 'index.jsonl')
-  const updateDuration = store.db.prepare(`UPDATE captures SET duration_ms = ? WHERE request_id = ?`)
+function createIngester({
+  store, bodiesDir, sessionLogs = createSessionLogs(),
+  fileWaitMs = 10_000, thinkingWaitMs = 3_000, graceMs = 15 * 60_000,
+  rotateBytes = 1024 * 1024, drainMs = 60_000, scanEveryMs = 2_000, sweepEveryMs = 15_000,
+  log = () => {},
+}) {
+  const db = store.db
+  const rowStmt = db.prepare(`SELECT status_code, response_body_path, request_body_path, timestamp FROM captures WHERE request_id = ?`)
+  const consumedStmt = db.prepare(`SELECT 1 FROM otel_failures WHERE event_uuid = ?`)
+  const consumeStmt = db.prepare(`INSERT OR IGNORE INTO otel_failures (event_uuid, request_id) VALUES (?, ?)`)
+  const pruneStmt = db.prepare(`DELETE FROM otel_failures WHERE request_id NOT IN (SELECT request_id FROM captures)`)
 
-  let offset = 0
-  let partial = ''
-  const answered = new Set()          // request_body_ids with a response
-  const orphaned = new Set()          // request_body_ids recorded without one
-  const rowByServerId = new Map()     // API request-id → request_body_id
-  const durationByServerId = new Map() // api_request events seen before their index line
-  const bodiesBySession = new Map()   // session.id → request_body_ids, from api_request_body events
+  // index.jsonl, plus rotated copies left to drain (a line Claude Code opened
+  // the file for just before the rename still lands in the old one).
+  const tails = []
+  const tailFor = file => ({ file, offset: 0, ino: null, grewAt: Date.now() })
+  try {
+    for (const f of fs.readdirSync(bodiesDir).filter(f => ROTATED.test(f)).sort()) tails.push(tailFor(path.join(bodiesDir, f)))
+  } catch { /* dir not created yet */ }
+  let current = tailFor(path.join(bodiesDir, INDEX))
+  tails.push(current)
+  let blocked = false // an index line is waiting: hold off on sweeping bodies it may claim
 
+  const bodies = new Map()   // body id → { sessionId, mtimeMs, hash, state: 'pending' | 'failed' | 'done' }
+  const waitingSince = new Map() // body id → first time its index line had to wait
+  const droppedFailures = new Set()
+  let lastScanAt = -Infinity
+  let lastSweepAt = Date.now() // first sweep only after a scan + reconcile had a chance to run
+
+  const rowFor = bodyId => rowStmt.get(bodyId)
+  const isIngested = row => row?.status_code === 200 && row.response_body_path != null
+
+  /** The request body: from its file, else from the payload an earlier record kept. */
   function readRequest(bodyId) {
     const abs = path.join(bodiesDir, `${bodyId}.request.json`)
     try {
       return { buf: fs.readFileSync(abs), mtimeMs: fs.statSync(abs).mtimeMs }
+    } catch { /* deleted after an earlier record, or never written */ }
+    const row = rowFor(bodyId)
+    if (!row) return null
+    try {
+      return { buf: zlib.gunzipSync(fs.readFileSync(path.join(store.payloadsDir, row.request_body_path))), mtimeMs: row.timestamp }
     } catch {
       return null
     }
   }
 
-  function baseRow(bodyId, req, sessionFallback) {
+  function baseRow(bodyId, req, sessionFallback, now) {
     const summary = parseRequestSummary(req.buf)
     const sessionId = summary.session_id ?? sessionFallback ?? null
-    let hasBetas = false
-    try { hasBetas = Array.isArray(JSON.parse(req.buf.toString('utf8')).betas) } catch { /* */ }
+    let json = null
+    try { json = JSON.parse(req.buf.toString('utf8')) } catch { /* stored as is */ }
+    let reqBuf = req.buf
+    if (json && sessionId) {
+      const { body, changed } = restoreRequest(json, sessionLogs.get(sessionId, now))
+      if (changed) reqBuf = Buffer.from(JSON.stringify(body), 'utf8')
+    }
     const paths = store.bodyPathsFor(sessionId, bodyId)
     return {
       paths,
@@ -137,65 +162,17 @@ function createIngester({ store, bodiesDir, orphanGraceMs = 120_000, log = () =>
         timestamp: Math.round(req.mtimeMs), // the file is written as the request is sent
         method: 'POST',
         // The SDK sends betas as ?beta=true + an anthropic-beta header; the logged body keeps them as `betas`.
-        path: hasBetas ? '/v1/messages?beta=true' : '/v1/messages',
+        path: Array.isArray(json?.betas) ? '/v1/messages?beta=true' : '/v1/messages',
         model: summary.model, is_streaming: summary.is_streaming,
         system_blocks: summary.system_blocks, message_count: summary.message_count, tool_count: summary.tool_count,
         request_body_path: paths.reqRel,
-        request_body_bytes: gzipWrite(paths.reqAbs, req.buf),
+        request_body_bytes: gzipWrite(paths.reqAbs, reqBuf),
       },
     }
   }
 
-  /** One index.jsonl line = one successful call. Returns false if its files are not readable yet. */
-  function ingestEntry(entry) {
-    const bodyId = idFromFile(entry.request_file, '.request.json')
-    if (!bodyId || !entry.response_file) return true // nothing we can key on — skip
-    const req = readRequest(bodyId)
-    let resJson
-    try { resJson = fs.readFileSync(path.join(bodiesDir, path.basename(entry.response_file)), 'utf8') } catch { resJson = null }
-    if (!req || resJson === null) return false
-
-    const { row, paths, summary } = baseRow(bodyId, req, entry.session_id)
-    let resBuf
-    let usage
-    if (summary.is_streaming) {
-      try {
-        resBuf = Buffer.from(messageToSse(JSON.parse(resJson)), 'utf8')
-      } catch {
-        resBuf = Buffer.from(resJson, 'utf8')
-      }
-      usage = parseSseUsage(resBuf)
-    } else {
-      resBuf = Buffer.from(resJson, 'utf8')
-      usage = parseNonStreamUsage(resBuf)
-    }
-    const endMs = Date.parse(entry.timestamp)
-    const duration = durationByServerId.get(entry.request_id) ??
-      (Number.isFinite(endMs) ? Math.max(0, endMs - row.timestamp) : null)
-
-    store.insert({
-      ...row,
-      duration_ms: duration,
-      status_code: 200, error: null,
-      ...usage,
-      response_body_path: paths.resRel,
-      response_body_bytes: gzipWrite(paths.resAbs, resBuf),
-    })
-    answered.add(bodyId)
-    orphaned.delete(bodyId)
-    if (entry.request_id) {
-      rowByServerId.set(entry.request_id, bodyId)
-      durationByServerId.delete(entry.request_id)
-    }
-    log(`POST ${row.path} → 200 (otel, session=${row.session_id?.slice(0, 8) ?? '—'}, ${entry.query_source ?? '?'})`)
-    return true
-  }
-
-  /** A request body with no response: a failed, retried or aborted attempt. */
-  function recordOrphan(bodyId, { statusCode = null, error = ORPHAN_ERROR, durationMs = null, sessionId = null } = {}) {
-    const req = readRequest(bodyId)
-    if (!req) return
-    const { row } = baseRow(bodyId, req, sessionId)
+  function insertWithoutResponse(bodyId, req, { sessionId = null, statusCode = null, error, durationMs = null }, now) {
+    const { row } = baseRow(bodyId, req, sessionId, now)
     store.insert({
       ...row,
       duration_ms: durationMs,
@@ -203,146 +180,291 @@ function createIngester({ store, bodiesDir, orphanGraceMs = 120_000, log = () =>
       input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_creation_tokens: null,
       response_body_path: null, response_body_bytes: null,
     })
-    orphaned.add(bodyId)
-    log(`POST ${row.path} → ${statusCode ?? '?'} (otel, no response: ${error})`)
+    log(`POST ${row.path} → ${statusCode ?? '?'} (otel, session=${row.session_id?.slice(0, 8) ?? '—'}: ${error})`)
+    return row
   }
 
-  /** Reads whatever index.jsonl gained since the last call. */
-  function pollIndex() {
-    let size
-    try { size = fs.statSync(indexPath).size } catch { return 0 }
-    if (size < offset) { offset = 0; partial = '' } // truncated or replaced
-    if (size === offset) return 0
-    const fd = fs.openSync(indexPath, 'r')
-    const buf = Buffer.alloc(size - offset)
-    try { fs.readSync(fd, buf, 0, buf.length, offset) } finally { fs.closeSync(fd) }
-    let consumed = offset - Buffer.byteLength(partial, 'utf8') // where `partial` starts
-    const lines = (partial + buf.toString('utf8')).split('\n')
-    partial = lines.pop() ?? ''
+  function track(bodyId, meta) {
+    const prev = bodies.get(bodyId)
+    bodies.set(bodyId, { ...prev, ...meta })
+  }
+
+  /** One index.jsonl line = one completed call. 'wait' = retry this line on the next poll. */
+  function ingestEntry(entry, now) {
+    const bodyId = idFromFile(entry.request_file, '.request.json')
+    const resName = typeof entry.response_file === 'string' ? path.basename(entry.response_file) : null
+    if (!bodyId || !resName) return 'skip' // nothing to key on
+    const resAbs = path.join(bodiesDir, resName)
+    const reqAbs = path.join(bodiesDir, `${bodyId}.request.json`)
+    if (isIngested(rowFor(bodyId))) {
+      // Replay after a restart: done already, only the files may be left.
+      unlinkQuiet(reqAbs)
+      unlinkQuiet(resAbs)
+      return 'skip'
+    }
+
+    const since = waitingSince.get(bodyId) ?? now
+    const wait = () => { waitingSince.set(bodyId, since); return 'wait' }
+    const req = readRequest(bodyId)
+    let msg = null
+    try { msg = JSON.parse(fs.readFileSync(resAbs, 'utf8')) } catch { /* not written yet, or partially */ }
+    if (!req || !msg) {
+      if (now - since < fileWaitMs) return wait()
+      waitingSince.delete(bodyId)
+      if (!req) {
+        log(`skipping ${bodyId}: request file missing`)
+        unlinkQuiet(resAbs)
+        return 'skip'
+      }
+      insertWithoutResponse(bodyId, req, { sessionId: entry.session_id, error: MISSING_RESPONSE_ERROR }, now)
+      track(bodyId, { state: 'done', mtimeMs: req.mtimeMs, hash: sha1(req.buf) })
+      unlinkQuiet(reqAbs)
+      unlinkQuiet(resAbs)
+      return 'ingested'
+    }
+
+    const sessionId = parseRequestSummary(req.buf).session_id ?? entry.session_id ?? null
+    const sessionLog = sessionId ? sessionLogs.get(sessionId, now) : null
+    const restored = restoreMessage(msg, sessionLog)
+    // The JSONL is normally written first; give it a moment if it is there but behind.
+    if (restored.missing > 0 && sessionLog?.found && now - since < thinkingWaitMs) return wait()
+    waitingSince.delete(bodyId)
+
+    const { row, paths, summary } = baseRow(bodyId, req, entry.session_id, now)
+    let resBuf
+    let usage
+    if (summary.is_streaming) {
+      resBuf = Buffer.from(messageToSse(restored.msg), 'utf8')
+      usage = parseSseUsage(resBuf)
+    } else {
+      resBuf = Buffer.from(JSON.stringify(restored.msg), 'utf8')
+      usage = parseNonStreamUsage(resBuf)
+    }
+    const endMs = Date.parse(entry.timestamp)
+    store.insert({
+      ...row,
+      duration_ms: Number.isFinite(endMs) ? Math.max(0, endMs - row.timestamp) : null,
+      status_code: 200, error: null,
+      ...usage,
+      response_body_path: paths.resRel,
+      response_body_bytes: gzipWrite(paths.resAbs, resBuf),
+    })
+    // Kept as a twin for failure matching (retries resend the same body) until the sweep.
+    track(bodyId, { sessionId: row.session_id, mtimeMs: req.mtimeMs, hash: sha1(req.buf), state: 'done' })
+    unlinkQuiet(reqAbs)
+    unlinkQuiet(resAbs)
+    log(`POST ${row.path} → 200 (otel, session=${row.session_id?.slice(0, 8) ?? '—'}, ${entry.query_source ?? '?'})`)
+    return 'ingested'
+  }
+
+  /** Reads what a tail gained; returns [ingested count, whether a line is waiting]. */
+  function drainTail(tail, now) {
+    let st
+    try { st = fs.statSync(tail.file) } catch { return [0, false] }
+    if (tail.ino !== st.ino || st.size < tail.offset) { tail.offset = 0; tail.ino = st.ino } // replaced or truncated
+    if (st.size === tail.offset) return [0, false]
+    tail.grewAt = now
+    const buf = Buffer.alloc(st.size - tail.offset)
+    const fd = fs.openSync(tail.file, 'r')
+    try { fs.readSync(fd, buf, 0, buf.length, tail.offset) } finally { fs.closeSync(fd) }
     let ingested = 0
-    for (const line of lines) {
-      const lineBytes = Buffer.byteLength(line, 'utf8') + 1
+    let pos = 0
+    for (let nl = buf.indexOf(0x0a); nl >= 0; nl = buf.indexOf(0x0a, pos)) {
+      const line = buf.toString('utf8', pos, nl)
       if (line.trim()) {
         let entry = null
         try { entry = JSON.parse(line) } catch { log(`skipping malformed index line: ${line.slice(0, 80)}`) }
-        // Files not readable yet: stop here and retry this line on the next poll.
-        if (entry && !ingestEntry(entry)) { partial = ''; offset = consumed; return ingested }
-        if (entry) ingested++
+        const r = entry ? ingestEntry(entry, now) : 'skip'
+        if (r === 'wait') return [ingested, true]
+        if (r === 'ingested') ingested++
       }
-      consumed += lineBytes
+      tail.offset += nl + 1 - pos
+      pos = nl + 1
     }
-    offset = size
+    return [ingested, false] // an unterminated last line is re-read next time
+  }
+
+  /** Ingests what the index (and rotated copies) gained; rotates a large, fully read index. */
+  function pollIndex(now = Date.now()) {
+    let ingested = 0
+    blocked = false
+    for (const tail of [...tails]) {
+      const [n, waiting] = drainTail(tail, now)
+      ingested += n
+      if (waiting) { blocked = true; break } // keep lines in order
+      if (tail !== current && now - tail.grewAt >= drainMs) {
+        unlinkQuiet(tail.file)
+        tails.splice(tails.indexOf(tail), 1)
+      }
+    }
+    if (!blocked && current.offset >= rotateBytes) {
+      const rotated = path.join(bodiesDir, `index-${now}.jsonl`)
+      try {
+        fs.renameSync(current.file, rotated)
+        current.file = rotated
+        current.grewAt = now
+        current = tailFor(path.join(bodiesDir, INDEX))
+        tails.push(current)
+      } catch (err) {
+        log(`index rotation failed: ${err.message}`)
+      }
+    }
     return ingested
   }
 
-  /** Records request bodies that never got a response within the grace period. */
-  function sweepOrphans(now = Date.now()) {
+  /** Notes request bodies on disk that the index has not accounted for. */
+  function scanBodies(now = Date.now()) {
     let files
     try { files = fs.readdirSync(bodiesDir) } catch { return }
     for (const f of files) {
       const bodyId = idFromFile(f, '.request.json')
-      if (!bodyId || answered.has(bodyId) || orphaned.has(bodyId)) continue
+      if (!bodyId || bodies.has(bodyId)) continue
+      let buf
       let mtimeMs
-      try { mtimeMs = fs.statSync(path.join(bodiesDir, f)).mtimeMs } catch { continue }
-      if (now - mtimeMs >= orphanGraceMs) recordOrphan(bodyId)
+      try {
+        mtimeMs = fs.statSync(path.join(bodiesDir, f)).mtimeMs
+        buf = fs.readFileSync(path.join(bodiesDir, f))
+      } catch { continue }
+      const summary = parseRequestSummary(buf)
+      if (!summary.session_id && now - mtimeMs < 5_000) continue // possibly still being written
+      // A body an earlier run already recorded keeps that record.
+      const row = rowFor(bodyId)
+      const state = isIngested(row) ? 'done' : row ? 'failed' : 'pending'
+      bodies.set(bodyId, { sessionId: summary.session_id, mtimeMs, hash: sha1(buf), state })
     }
   }
 
-  /** Applies Claude Code's OTLP log events. */
-  function handleOtlp(payload) {
-    for (const { name, attrs } of otlpLogRecords(payload)) {
-      const sessionId = attrs['session.id'] ?? null
-      if (name === 'api_request_body' && attrs.request_body_id && sessionId) {
-        const list = bodiesBySession.get(sessionId) ?? []
-        list.push(attrs.request_body_id)
-        bodiesBySession.set(sessionId, list.slice(-50))
-      } else if (name === 'api_request' && attrs.request_id && typeof attrs.duration_ms === 'number') {
-        const bodyId = rowByServerId.get(attrs.request_id)
-        if (bodyId) updateDuration.run(attrs.duration_ms, bodyId)
-        else durationByServerId.set(attrs.request_id, attrs.duration_ms)
-      } else if (name === 'api_error' && sessionId) {
-        // Emitted once per call that failed for good (after retries). It carries no
-        // request_body_id: attribute it to the session's latest unanswered body.
-        const bodyId = [...(bodiesBySession.get(sessionId) ?? [])].reverse().find(id => !answered.has(id))
-        if (bodyId) {
-          recordOrphan(bodyId, {
-            statusCode: typeof attrs.status_code === 'number' ? attrs.status_code : 0,
-            error: String(attrs.error ?? 'api_error'),
-            durationMs: typeof attrs.duration_ms === 'number' ? attrs.duration_ms : null,
-            sessionId,
-          })
+  /**
+   * Records the session JSONL's failed attempts against unanswered bodies:
+   * the same session, sent before the failure, preferring a body with an
+   * identical twin (a retry resends the same body), then the latest one.
+   */
+  function reconcileFailures(now = Date.now()) {
+    const sessions = new Set([...bodies.values()].filter(b => b.state === 'pending' && b.sessionId).map(b => b.sessionId))
+    for (const sessionId of sessions) {
+      const sessionLog = sessionLogs.get(sessionId, now)
+      const mine = [...bodies.entries()].filter(([, b]) => b.sessionId === sessionId)
+      for (const f of [...sessionLog.failures].sort((a, b) => a.ts - b.ts)) {
+        if (droppedFailures.has(f.uuid) || consumedStmt.get(f.uuid)) continue
+        // Wait for the retry to be sent, so its twin can point at the right body.
+        if (!f.final && now < f.ts + f.retryInMs + 2_000) continue
+        const candidates = mine.filter(([, b]) => b.state === 'pending' && b.mtimeMs <= f.ts + 50 && b.mtimeMs >= f.ts - graceMs)
+        const twin = b => mine.some(([, o]) => o !== b && o.hash === b.hash)
+        candidates.sort(([, a], [, b]) => (twin(b) - twin(a)) || (b.mtimeMs - a.mtimeMs))
+        const [bodyId, body] = candidates[0] ?? []
+        if (!bodyId) {
+          if (now - f.ts > graceMs) droppedFailures.add(f.uuid) // its body is gone
+          continue
         }
+        const req = readRequest(bodyId)
+        if (!req) { bodies.delete(bodyId); continue }
+        insertWithoutResponse(bodyId, req, {
+          sessionId, statusCode: f.status, error: describeFailure(f), durationMs: Math.max(0, Math.round(f.ts - req.mtimeMs)),
+        }, now)
+        consumeStmt.run(f.uuid, bodyId)
+        body.state = 'failed'
       }
     }
   }
 
-  return { pollIndex, sweepOrphans, handleOtlp }
+  /**
+   * Past the grace period: a body still unclaimed is recorded as interrupted,
+   * and every tracked body file is deleted (its payload is in the store).
+   * Skipped while an index line waits, since that line may still claim one.
+   */
+  function sweepOrphans(now = Date.now()) {
+    if (blocked) return
+    for (const [bodyId, b] of bodies) {
+      if (now - b.mtimeMs < graceMs) continue
+      const reqAbs = path.join(bodiesDir, `${bodyId}.request.json`)
+      if (b.state === 'pending' && !rowFor(bodyId)) {
+        const req = readRequest(bodyId)
+        if (req) insertWithoutResponse(bodyId, req, { sessionId: b.sessionId, error: ORPHAN_ERROR }, now)
+      }
+      unlinkQuiet(reqAbs)
+      bodies.delete(bodyId)
+    }
+    // Responses whose index line never came (Claude Code exited in between).
+    let files = []
+    try { files = fs.readdirSync(bodiesDir) } catch { /* */ }
+    for (const f of files) {
+      if (!f.endsWith('.response.json')) continue
+      const abs = path.join(bodiesDir, f)
+      try { if (now - fs.statSync(abs).mtimeMs >= graceMs) unlinkQuiet(abs) } catch { /* */ }
+    }
+    pruneStmt.run()
+    sessionLogs.evictIdle(now)
+  }
+
+  /** One polling step: index, then (throttled) failures, then (throttled) cleanup. */
+  function tick(now = Date.now()) {
+    const ingested = pollIndex(now)
+    if (!blocked && now - lastScanAt >= scanEveryMs) {
+      lastScanAt = now
+      scanBodies(now)
+      reconcileFailures(now)
+    }
+    if (now - lastSweepAt >= sweepEveryMs) {
+      lastSweepAt = now
+      sweepOrphans(now)
+    }
+    return ingested
+  }
+
+  return { pollIndex, scanBodies, reconcileFailures, sweepOrphans, tick }
 }
 
 // ─── main ────────────────────────────────────────────────────────────────────
 
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return err.code === 'EPERM'
+  }
+}
+
 function main() {
   const bodiesDir = path.resolve(process.env.CC_LENS_OTEL_BODIES_DIR || path.join(os.homedir(), '.cc-lens', 'otel-bodies'))
-  const otlpPort = Number(process.env.CC_LENS_OTLP_PORT ?? 4318)
-  const orphanGraceMs = Number(process.env.CC_LENS_OTEL_ORPHAN_GRACE_MS || 120_000)
-  fs.mkdirSync(bodiesDir, { recursive: true })
-
-  const store = openStore()
+  const graceMs = Number(process.env.CC_LENS_OTEL_GRACE_MS || 15 * 60_000)
   const log = msg => process.stderr.write(`[cc-lens-otel] ${msg}\n`)
-  const ingester = createIngester({ store, bodiesDir, orphanGraceMs, log })
 
+  const store = openStore({ source: 'otel' })
+  // Same file the dashboard reads for status (lib/otel-control.ts). One ingester per machine.
+  const statePath = path.join(store.root, 'otel-ingest.json')
+  try {
+    const other = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    if (other.pid !== process.pid && isAlive(other.pid)) {
+      log(`already running (pid ${other.pid}), exiting`)
+      store.close()
+      process.exit(0)
+    }
+  } catch { /* no state file */ }
+  fs.mkdirSync(bodiesDir, { recursive: true })
+  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, bodiesDir, startedAt: Date.now() }, null, 2))
+
+  const ingester = createIngester({ store, bodiesDir, graceMs, log })
   const tick = () => {
     try {
-      if (ingester.pollIndex() > 0) store.enforceRetention()
+      if (ingester.tick() > 0) store.enforceRetention()
     } catch (err) {
       log(`poll failed: ${err.message}`)
     }
   }
   tick()
-  const pollTimer = setInterval(tick, 500)
-  const sweepTimer = setInterval(() => ingester.sweepOrphans(), 15_000)
-
-  let server = null
-  if (otlpPort > 0) {
-    server = http.createServer((req, res) => {
-      const chunks = []
-      req.on('data', c => chunks.push(c))
-      req.on('end', () => {
-        // Only logs matter; accept metrics/traces too so a shared endpoint doesn't error.
-        if (req.method === 'POST' && req.url?.startsWith('/v1/logs')) {
-          try {
-            let body = Buffer.concat(chunks)
-            if (req.headers['content-encoding'] === 'gzip') body = zlib.gunzipSync(body)
-            if (!(req.headers['content-type'] || '').includes('json')) {
-              res.writeHead(415, { 'content-type': 'application/json' })
-              res.end(JSON.stringify({ error: 'set OTEL_EXPORTER_OTLP_PROTOCOL=http/json' }))
-              return
-            }
-            tick() // ingest index lines first, so api_request can find its row
-            ingester.handleOtlp(JSON.parse(body.toString('utf8')))
-          } catch (err) {
-            log(`bad OTLP payload: ${err.message}`)
-          }
-        }
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end('{}')
-      })
-    })
-    server.listen(otlpPort, '127.0.0.1')
-  }
+  const timer = setInterval(tick, 500)
 
   log(`bodies dir   = ${bodiesDir}`)
   log(`inspector.db = ${store.dbPath}`)
-  log(`Run Claude Code with:`)
-  log(`  CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_LOG_RAW_API_BODIES=file:${bodiesDir}`)
-  if (server) {
-    log(`  OTEL_LOGS_EXPORTER=otlp OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/json OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:${otlpPort}/v1/logs`)
-  }
+  log(`Run Claude Code with: OTEL_LOG_RAW_API_BODIES=file:${bodiesDir} claude`)
+  store.enforceRetention()
 
   const shutdown = () => {
-    clearInterval(pollTimer)
-    clearInterval(sweepTimer)
-    try { server?.close() } catch { /* */ }
+    clearInterval(timer)
+    try {
+      if (JSON.parse(fs.readFileSync(statePath, 'utf8')).pid === process.pid) fs.unlinkSync(statePath)
+    } catch { /* */ }
     try { store.close() } catch { /* */ }
     process.exit(0)
   }
@@ -352,4 +474,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = { messageToSse, otlpLogRecords, createIngester, CCH_PLACEHOLDER, ORPHAN_ERROR }
+module.exports = { messageToSse, createIngester, CCH_PLACEHOLDER, ORPHAN_ERROR, MISSING_RESPONSE_ERROR }

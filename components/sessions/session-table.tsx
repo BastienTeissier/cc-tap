@@ -27,12 +27,15 @@ interface RowMetrics {
   shown: SessionMetrics
   whole?: SessionMetrics
   agentCount: number
+  /** false when Claude Code reported the session's cost, true when the rate table priced it */
+  estimated: boolean
 }
 
 function rowMetrics(s: SessionWithFacet): RowMetrics {
   const whole = sessionMetrics(s)
   const agentCount = s.agent_count ?? 0
-  return s.slice ? { shown: s.slice, whole, agentCount } : { shown: whole, agentCount }
+  const estimated = !s.reported_cost
+  return s.slice ? { shown: s.slice, whole, agentCount, estimated } : { shown: whole, agentCount, estimated }
 }
 
 function SortHeader({
@@ -392,18 +395,20 @@ function TokensCell({ metrics: m }: { metrics: RowMetrics }) {
   )
 }
 
-/** Session total; when sub-agents contributed, hover shows the orchestrator / agents split */
+/** Session total, `~` when the rate table priced it; hover shows the orchestrator / agents split */
 function SessionCostCell({ metrics: m }: { metrics: RowMetrics }) {
   const total = m.shown.estimated_cost
   const agents = m.shown.agents_cost
   const agentCount = m.agentCount
   const wholeDiffers = m.whole !== undefined && m.whole.estimated_cost !== total
-  if (agentCount === 0 && !wholeDiffers) return <>{formatCost(total)}</>
+  const shown = `${m.estimated ? '~' : ''}${formatCost(total)}`
+  if (agentCount === 0 && !wholeDiffers && !m.estimated) return <>{shown}</>
   const main = Math.max(0, total - agents)
   return (
     <Tooltip>
-      <TooltipTrigger asChild><span className={HINT}>{formatCost(total)}</span></TooltipTrigger>
+      <TooltipTrigger asChild><span className={HINT}>{shown}</span></TooltipTrigger>
       <TooltipContent side="left" className="font-mono text-xs">
+        {m.estimated && <div className={agentCount > 0 || wholeDiffers ? 'mb-1' : ''}>estimate: Claude Code reported no cost for the whole session</div>}
         {agentCount > 0 && <div>main {formatCost(main)} · agents {formatCost(agents)} · {agentCount} agent{agentCount === 1 ? '' : 's'}</div>}
         {wholeDiffers && <div className={agentCount > 0 ? 'mt-1 text-muted-foreground' : ''}>whole session {formatCost(m.whole!.estimated_cost)}</div>}
       </TooltipContent>

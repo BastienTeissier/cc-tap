@@ -111,6 +111,32 @@ describe('pricedAs', () => {
   })
 })
 
+describe('1-hour cache writes', () => {
+  // A main-thread turn: Claude Code writes it to the 1-hour cache
+  const usage: TurnUsage = {
+    input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: MTOK,
+    cache_creation: { ephemeral_5m_input_tokens: 250_000, ephemeral_1h_input_tokens: 750_000 },
+  }
+
+  it('cost 2× input, the 5-minute ones 1.25×', () => {
+    expect(getPricing('claude-fable-5-1').cacheWrite1h * MTOK).toBeCloseTo(20)
+    expect(getPricing('claude-opus-5-5').cacheWrite1h * MTOK).toBeCloseTo(8)
+    expect(estimateCostFromUsage('claude-fable-5-1', usage)).toBeCloseTo(0.25 * 12.5 + 0.75 * 20)
+  })
+
+  it('are priced from the per-model totals too', () => {
+    const cost = estimateTotalCostFromModel('claude-fable-5-1', {
+      inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: MTOK,
+      cacheCreation1hInputTokens: 750_000, costUSD: 0, webSearchRequests: 0,
+    })
+    expect(cost).toBeCloseTo(0.25 * 12.5 + 0.75 * 20)
+  })
+
+  it('without a TTL split, are all 5-minute ones, as before', () => {
+    expect(estimateCostFromUsage('claude-fable-5-1', { ...usage, cache_creation: undefined })).toBeCloseTo(12.5)
+  })
+})
+
 describe('estimateCostFromUsage', () => {
   it('sums all four token buckets at per-token rates', () => {
     const cost = estimateCostFromUsage('claude-opus-4-8', {

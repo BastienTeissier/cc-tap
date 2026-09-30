@@ -59,7 +59,7 @@ export default function CostsPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardDescription className="flex items-center gap-2">
-                    <DollarSign className="w-4 h-4" /> Total Estimated Cost
+                    <DollarSign className="w-4 h-4" /> Total Cost
                   </CardDescription>
                   <CardTitle className="text-3xl font-bold tabular-nums text-[#d97706]">
                     {formatCost(data.total_cost)}
@@ -67,6 +67,11 @@ export default function CostsPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-xs text-muted-foreground">{rangeLabel} spend across all projects</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {data.sessions_estimated === 0
+                      ? 'Reported by Claude Code'
+                      : `${data.sessions - data.sessions_estimated} of ${data.sessions} sessions reported by Claude Code, ${data.sessions_estimated} estimated from the rate table`}
+                  </p>
                 </CardContent>
               </Card>
 
@@ -163,7 +168,8 @@ export default function CostsPage() {
                       <TableHead>Model</TableHead>
                       <TableHead className="text-right">Input /MTok</TableHead>
                       <TableHead className="text-right">Output /MTok</TableHead>
-                      <TableHead className="text-right">Cache Write /MTok</TableHead>
+                      <TableHead className="text-right">Cache Write 5m /MTok</TableHead>
+                      <TableHead className="text-right">Cache Write 1h /MTok</TableHead>
                       <TableHead className="text-right">Cache Read /MTok</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -174,6 +180,7 @@ export default function CostsPage() {
                         <TableCell className="text-right font-mono text-blue-700 dark:text-[#60a5fa]">${(p.input * 1_000_000).toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono text-[#d97706]">${(p.output * 1_000_000).toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono text-[#a78bfa]">${(p.cacheWrite * 1_000_000).toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono text-[#a78bfa]">${(p.cacheWrite1h * 1_000_000).toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono text-[#34d399]">${(p.cacheRead * 1_000_000).toFixed(2)}</TableCell>
                       </TableRow>
                     ))}

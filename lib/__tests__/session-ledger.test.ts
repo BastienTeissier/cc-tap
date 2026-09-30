@@ -121,6 +121,18 @@ describe('sliceSession', () => {
 })
 
 describe('ledgerMetrics', () => {
+  it('keeps the 1-hour part of a cache write, orchestrator and agents alike', () => {
+    const b = new LedgerBuilder()
+    const i = b.addTurn({ ts: T0, model: MODEL, input: 0, output: 0, cacheRead: 0, cacheWrite: 100, cacheWrite1h: 60, toolCalls: 0 })
+    b.growTurn(i, { input: 0, output: 0, cacheRead: 0, cacheWrite: 50, cacheWrite1h: 40, toolCalls: 0 })
+    const agent = new LedgerBuilder()
+    agent.addTurn({ ts: T0, model: MODEL, input: 0, output: 0, cacheRead: 0, cacheWrite: 10, cacheWrite1h: 0, toolCalls: 0, isAgent: true })
+    b.appendAgent(agent.build(), MODEL)
+    const m = ledgerMetrics(b.build(), null, 1)
+    expect(m.model_usage[MODEL]).toMatchObject({ cacheCreationInputTokens: 160, cacheCreation1hInputTokens: 100 })
+    expect(m.agent_model_usage[MODEL]).toMatchObject({ cacheCreationInputTokens: 10, cacheCreation1hInputTokens: 0 })
+  })
+
   it('leaves model-less turns out of model_usage and prices them at the fallback rate', () => {
     const b = new LedgerBuilder()
     b.addTurn({ ts: T0, model: NO_MODEL, input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, toolCalls: 0 })

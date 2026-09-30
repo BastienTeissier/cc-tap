@@ -109,6 +109,17 @@ function parseNonStreamUsage(buf) {
 
 // ─── store ───────────────────────────────────────────────────────────────────
 
+/** Brings a DB created by an older version up to schema.sql (CREATE IF NOT EXISTS skips existing tables). */
+function migrate(db) {
+  const has = () => db.prepare(`PRAGMA table_info(captures)`).all().some(c => c.name === 'source')
+  if (has()) return
+  try {
+    db.exec(`ALTER TABLE captures ADD COLUMN source TEXT`)
+  } catch (err) {
+    if (!has()) throw err // lost the race to the other writer: fine
+  }
+}
+
 function gzipWrite(absPath, buf) {
   fs.mkdirSync(path.dirname(absPath), { recursive: true })
   const gz = zlib.gzipSync(buf, { level: 6 })
@@ -118,10 +129,12 @@ function gzipWrite(absPath, buf) {
 
 /**
  * Opens ~/.cc-lens/inspector.db (creating it and the payloads dir), and returns
- * the write side both capture paths need. `root` is overridable for tests.
+ * the write side both capture paths need. `root` is overridable for tests;
+ * `source` is recorded on every row this writer inserts.
  */
 function openStore({
   root = path.join(os.homedir(), '.cc-lens'),
+  source = 'proxy',
   retentionBytes = Number(process.env.CC_LENS_RETENTION_BYTES || 1024 * 1024 * 1024), // 1 GB
   retentionDays = Number(process.env.CC_LENS_RETENTION_DAYS || 30),
 } = {}) {
@@ -137,6 +150,7 @@ function openStore({
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA synchronous = NORMAL')
   db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'))
+  migrate(db)
 
   const insertStmt = db.prepare(`
     INSERT OR REPLACE INTO captures (
@@ -147,7 +161,7 @@ function openStore({
       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
       system_blocks, message_count, tool_count,
       request_body_path, response_body_path,
-      request_body_bytes, response_body_bytes
+      request_body_bytes, response_body_bytes, source
     ) VALUES (
       @request_id, @session_id, @account_uuid, @device_id,
       @cc_version, @cc_entrypoint, @cc_config_hash,
@@ -156,7 +170,7 @@ function openStore({
       @input_tokens, @output_tokens, @cache_read_tokens, @cache_creation_tokens,
       @system_blocks, @message_count, @tool_count,
       @request_body_path, @response_body_path,
-      @request_body_bytes, @response_body_bytes
+      @request_body_bytes, @response_body_bytes, @source
     )
   `)
 
@@ -218,10 +232,11 @@ function openStore({
 
   return {
     db,
+    root,
     dbPath,
     payloadsDir,
     bodyPathsFor,
-    insert: row => insertStmt.run(row),
+    insert: row => insertStmt.run({ ...row, source }),
     enforceRetention,
     close: () => db.close(),
   }

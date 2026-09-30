@@ -6,6 +6,7 @@ import { CompactionCard } from './compaction-card'
 import { AssistantMarkdown } from './assistant-markdown'
 import { UserToolResult } from './user-tool-result'
 import { formatCost, formatTokens, formatDurationMs } from '@/lib/decode'
+import { modelLabel } from '@/lib/model-label'
 import type { ReplayTurn, CompactionEvent } from '@/types/claude'
 import type { TurnMatch } from '@/lib/replay-search'
 import { Badge } from '@/components/ui/badge'
@@ -112,20 +113,7 @@ function AssistantTurnCardView({ turn, turnNumber, toolResults, match }: TurnCar
   const isThinkingOpen = thinkingOpen ?? inThinking
   const isExpanded = expanded ?? (match?.text ?? false)
 
-  const modelShort = turn.model?.includes('fable-5-1') ? 'Fable 5.1'
-    : turn.model?.includes('fable-5') ? 'Fable 5'
-    : turn.model?.includes('opus-5')   ? 'Opus 5'
-    : turn.model?.includes('opus-4-8') ? 'Opus 4.8'
-    : turn.model?.includes('opus-4-7') ? 'Opus 4.7'
-    : turn.model?.includes('opus-4-6') ? 'Opus 4.6'
-    : turn.model?.includes('opus-4-5') ? 'Opus 4.5'
-    : turn.model?.includes('opus-4')   ? 'Opus 4'
-    : turn.model?.includes('sonnet-5') ? 'Sonnet 5'
-    : turn.model?.includes('sonnet-4-6') ? 'Sonnet 4.6'
-    : turn.model?.includes('sonnet-4-5') ? 'Sonnet 4.5'
-    : turn.model?.includes('sonnet')   ? 'Sonnet'
-    : turn.model?.includes('haiku')    ? 'Haiku'
-    : turn.model ?? 'Claude'
+  const modelShort = (turn.model && modelLabel(turn.model)) ?? turn.model ?? 'Claude'
 
   const textToShow = turn.text ?? ''
   const needsExpandToggle = textToShow.length > ASSISTANT_COLLAPSE_THRESHOLD

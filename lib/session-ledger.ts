@@ -1,5 +1,5 @@
-import type { ModelUsage, SessionMeta, SessionMetrics, SessionSlice, SessionsRangeSummary } from '@/types/claude'
-import { agentsCost, costOfUsage, sessionCost } from '@/lib/pricing'
+import type { ModelUsage, ReportedCost, SessionMeta, SessionMetrics, SessionSlice, SessionsRangeSummary } from '@/types/claude'
+import { agentsCost, costOfUsage, estimateTotalCostFromModel, sessionCost } from '@/lib/pricing'
 import { intersectsWindow, type TimeWindow } from '@/lib/time-window'
 
 // ─── Turn ledger ─────────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ export interface TurnLedger {
   output: Float64Array
   cacheRead: Float64Array
   cacheWrite: Float64Array
+  cacheWrite1h: Float64Array // the part of cacheWrite that went to the 1-hour cache, priced higher
   toolCalls: Uint16Array    // tool_use blocks in that turn
   isAgent: Uint8Array       // 1 when from a sub-agent transcript
   models: string[]
@@ -39,6 +40,7 @@ export class LedgerBuilder {
   private output: number[] = []
   private cacheRead: number[] = []
   private cacheWrite: number[] = []
+  private cacheWrite1h: number[] = []
   private toolCalls: number[] = []
   private isAgent: number[] = []
   private userTs: number[] = []
@@ -58,7 +60,7 @@ export class LedgerBuilder {
   /** Appends a turn (one API response) and returns its index, or -1 when it has no usable time. */
   addTurn(t: {
     ts: number; model: string; input: number; output: number
-    cacheRead: number; cacheWrite: number; toolCalls: number; isAgent?: boolean
+    cacheRead: number; cacheWrite: number; cacheWrite1h?: number; toolCalls: number; isAgent?: boolean
   }): number {
     if (!Number.isFinite(t.ts)) return -1
     this.ts.push(t.ts)
@@ -67,18 +69,20 @@ export class LedgerBuilder {
     this.output.push(t.output)
     this.cacheRead.push(t.cacheRead)
     this.cacheWrite.push(t.cacheWrite)
+    this.cacheWrite1h.push(t.cacheWrite1h ?? 0)
     this.toolCalls.push(Math.min(t.toolCalls, 0xffff))
     this.isAgent.push(t.isAgent ? 1 : 0)
     return this.ts.length - 1
   }
 
   /** Adds a later line of the same response to turn `i`: its token growth and its tool calls. */
-  growTurn(i: number, d: { input: number; output: number; cacheRead: number; cacheWrite: number; toolCalls: number }): void {
+  growTurn(i: number, d: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h?: number; toolCalls: number }): void {
     if (i < 0 || i >= this.ts.length) return
     this.input[i] += d.input
     this.output[i] += d.output
     this.cacheRead[i] += d.cacheRead
     this.cacheWrite[i] += d.cacheWrite
+    this.cacheWrite1h[i] += d.cacheWrite1h ?? 0
     this.toolCalls[i] = Math.min(this.toolCalls[i] + d.toolCalls, 0xffff)
   }
 
@@ -102,6 +106,7 @@ export class LedgerBuilder {
       this.output.push(l.output[i])
       this.cacheRead.push(l.cacheRead[i])
       this.cacheWrite.push(l.cacheWrite[i])
+      this.cacheWrite1h.push(l.cacheWrite1h[i])
       this.toolCalls.push(l.toolCalls[i])
       this.isAgent.push(asAgent ? 1 : l.isAgent[i])
     }
@@ -115,6 +120,7 @@ export class LedgerBuilder {
       output: Float64Array.from(this.output),
       cacheRead: Float64Array.from(this.cacheRead),
       cacheWrite: Float64Array.from(this.cacheWrite),
+      cacheWrite1h: Float64Array.from(this.cacheWrite1h),
       toolCalls: Uint16Array.from(this.toolCalls),
       isAgent: Uint8Array.from(this.isAgent),
       models: [...this.models],
@@ -155,9 +161,36 @@ function emptyUsage(): ModelUsage {
   return { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, webSearchRequests: 0 }
 }
 
-function addUsage(target: Record<string, ModelUsage>, model: string, input: number, output: number, cacheRead: number, cacheWrite: number): void {
+function addUsage(target: Record<string, ModelUsage>, model: string, input: number, output: number, cacheRead: number, cacheWrite: number, cacheWrite1h: number): void {
   const u = target[model] ?? (target[model] = emptyUsage())
   u.inputTokens += input; u.outputTokens += output; u.cacheReadInputTokens += cacheRead; u.cacheCreationInputTokens += cacheWrite
+  u.cacheCreation1hInputTokens = (u.cacheCreation1hInputTokens ?? 0) + cacheWrite1h
+}
+
+/**
+ * The multiplier that turns each model's table estimate into its share of
+ * Claude Code's reported cost: that model's reported cost over its estimate
+ * for the whole session, then one factor for the whole session so the models
+ * add up to the reported total (it holds calls the transcripts never show:
+ * session titles, side requests). Null when nothing in the ledger is priced.
+ */
+function calibration(whole: Record<string, ModelUsage>, reported: ReportedCost): ((model: string) => number) | null {
+  const factor: Record<string, number> = {}
+  let calibrated = 0
+  for (const [model, u] of Object.entries(whole)) {
+    const estimate = estimateTotalCostFromModel(model, u)
+    const own = reported.by_model[model]
+    factor[model] = own !== undefined && own > 0 && estimate > 0 ? own / estimate : 1
+    calibrated += estimate * factor[model]
+  }
+  if (calibrated <= 0) return null
+  const scale = reported.total / calibrated
+  return model => (factor[model] ?? 1) * scale
+}
+
+/** Sets costUSD on every model of `usage`: the table's estimate, times `scale` */
+function price(usage: Record<string, ModelUsage>, scale: (model: string) => number): void {
+  for (const [model, u] of Object.entries(usage)) u.costUSD = estimateTotalCostFromModel(model, u) * scale(model)
 }
 
 /**
@@ -165,8 +198,13 @@ function addUsage(target: Record<string, ModelUsage>, model: string, input: numb
  * `inWindow`; `null` means every turn). Turns without a model name count in
  * the token totals but not in `model_usage`, so pricing falls back to the
  * default model's rate when nothing is attributed.
+ *
+ * Each model's costUSD is the table's estimate, or with `reported` (the cost
+ * Claude Code wrote for the whole session), that cost spread over the turns in
+ * proportion to their estimate: the whole session then costs exactly what
+ * Claude Code reported, and a window its share of it.
  */
-export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinutes: number): LedgerMetrics {
+export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinutes: number, reported: ReportedCost | null = null): LedgerMetrics {
   let input = 0, output = 0, cacheRead = 0, cacheWrite = 0
   let assistantCount = 0, toolCalls = 0, agentsTokens = 0
   const modelUsage: Record<string, ModelUsage> = {}
@@ -176,7 +214,7 @@ export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinut
     const t = l.ts[i]
     if (w && (t < w.from || t > w.to)) continue
     const agent = l.isAgent[i] === 1
-    const ti = l.input[i], to = l.output[i], tr = l.cacheRead[i], tw = l.cacheWrite[i]
+    const ti = l.input[i], to = l.output[i], tr = l.cacheRead[i], tw = l.cacheWrite[i], tw1h = l.cacheWrite1h[i]
     input += ti; output += to; cacheRead += tr; cacheWrite += tw
     if (agent) {
       agentsTokens += ti + to + tr + tw
@@ -186,8 +224,8 @@ export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinut
     }
     const model = l.models[l.model[i]]
     if (model !== NO_MODEL) {
-      addUsage(modelUsage, model, ti, to, tr, tw)
-      if (agent) addUsage(agentUsage, model, ti, to, tr, tw)
+      addUsage(modelUsage, model, ti, to, tr, tw, tw1h)
+      if (agent) addUsage(agentUsage, model, ti, to, tr, tw, tw1h)
     }
   }
 
@@ -195,6 +233,14 @@ export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinut
   for (let i = 0; i < l.userTs.length; i++) {
     const t = l.userTs[i]
     if (!w || (t >= w.from && t <= w.to)) userCount++
+  }
+
+  const calibrated = reported && calibration(w ? ledgerMetrics(l, null, durationMinutes).model_usage : modelUsage, reported)
+  price(modelUsage, calibrated || (() => 1))
+  price(agentUsage, calibrated || (() => 1))
+  // Claude Code billed only calls no transcript line shows (a session title): that is the whole session
+  if (reported && !calibrated && !w) {
+    for (const [model, cost] of Object.entries(reported.by_model)) (modelUsage[model] ??= emptyUsage()).costUSD = cost
   }
 
   const totals = { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite }
@@ -260,7 +306,7 @@ export function sliceSession({ session: s, ledger }: LedgeredSession, w: TimeWin
 
   const partial = start < w.from || end > w.to
   const durationMinutes = Math.max(0, Math.min(end, w.to) - Math.max(start, w.from)) / 60_000
-  const { agent_model_usage: _agents, ...metrics } = ledgerMetrics(ledger, w, durationMinutes)
+  const { agent_model_usage: _agents, ...metrics } = ledgerMetrics(ledger, w, durationMinutes, s.reported_cost ?? null)
   return { from: w.from, to: w.to, partial, ...metrics }
 }
 

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { PromptTick, TimeSegment, TurnUsage } from '@/types/claude'
 import { readJSONLLines } from '@/lib/jsonl'
 import { LedgerBuilder, NO_MODEL, type TurnLedger } from '@/lib/session-ledger'
-import { ResponseTracker, responseKey, type UsageFields } from '@/lib/response-usage'
+import { ResponseTracker, oneHourWrite, responseKey, type UsageFields } from '@/lib/response-usage'
 import { resultText } from '@/lib/tool-search'
 import { parseWorkflowLaunchText } from '@/lib/workflow-runs'
 
@@ -82,6 +82,11 @@ function addUsage(acc: TurnUsage, u: Partial<TurnUsage> | undefined) {
   acc.output_tokens               += u.output_tokens ?? 0
   acc.cache_creation_input_tokens += u.cache_creation_input_tokens ?? 0
   acc.cache_read_input_tokens     += u.cache_read_input_tokens ?? 0
+  if (u.cache_creation) {
+    const split = acc.cache_creation ?? (acc.cache_creation = { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 })
+    split.ephemeral_5m_input_tokens += u.cache_creation.ephemeral_5m_input_tokens ?? 0
+    split.ephemeral_1h_input_tokens += u.cache_creation.ephemeral_1h_input_tokens ?? 0
+  }
 }
 
 /** The part of an assistant message that prices it */
@@ -211,6 +216,7 @@ export function scanTranscript(lines: AnyLine[]): TranscriptScan {
         output_tokens: delta.output_tokens ?? 0,
         cache_read_input_tokens: delta.cache_read_input_tokens ?? 0,
         cache_creation_input_tokens: delta.cache_creation_input_tokens ?? 0,
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: oneHourWrite(delta) },
       }
       if (priced.success) {
         const { model, usage } = priced.data
@@ -258,13 +264,13 @@ export function scanTranscript(lines: AnyLine[]): TranscriptScan {
       const key = responseKey(l)
       const turn = key === null ? undefined : turnOf.get(key)
       if (!isNew && turn !== undefined) {
-        ledger.growTurn(turn, { input: added.input_tokens, output: added.output_tokens, cacheRead: added.cache_read_input_tokens, cacheWrite: added.cache_creation_input_tokens, toolCalls })
+        ledger.growTurn(turn, { input: added.input_tokens, output: added.output_tokens, cacheRead: added.cache_read_input_tokens, cacheWrite: added.cache_creation_input_tokens, cacheWrite1h: added.cache_creation.ephemeral_1h_input_tokens, toolCalls })
       } else if (ts && priced.success && priced.data.usage) {
         const i = ledger.addTurn({
           ts: new Date(ts).getTime(),
           model: priced.data.model ?? NO_MODEL,
           input: added.input_tokens, output: added.output_tokens,
-          cacheRead: added.cache_read_input_tokens, cacheWrite: added.cache_creation_input_tokens,
+          cacheRead: added.cache_read_input_tokens, cacheWrite: added.cache_creation_input_tokens, cacheWrite1h: added.cache_creation.ephemeral_1h_input_tokens,
           toolCalls,
         })
         if (key !== null && i >= 0) turnOf.set(key, i)

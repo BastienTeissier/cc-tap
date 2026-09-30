@@ -51,11 +51,21 @@ export function maxUsage<T extends UsageFields>(a: T, b: T): T {
   return out as T
 }
 
-/** What `b` adds over `a`, field by field (never negative). */
+/** What `b` adds over `a`, field by field (never negative), the cache write's TTL split included. */
 function growth(a: UsageFields, b: UsageFields): UsageFields {
   const out: UsageFields = {}
   for (const f of FIELDS) out[f] = Math.max(0, num(b[f]) - num(a[f]))
+  if (b.cache_creation) {
+    const split: Record<string, number> = {}
+    for (const f of SPLIT) split[f] = Math.max(0, num(b.cache_creation[f]) - num(a.cache_creation?.[f]))
+    out.cache_creation = split
+  }
   return out
+}
+
+/** The part of a usage's cache write that went to the 1-hour cache (0 when the usage has no TTL split). */
+export function oneHourWrite(u: UsageFields | undefined): number {
+  return num(u?.cache_creation?.ephemeral_1h_input_tokens)
 }
 
 /**

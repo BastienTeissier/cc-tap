@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAllParsedSessions } from '@/lib/claude-reader'
-import { sessionCost } from '@/lib/pricing'
+import { sessionCost, unpricedModels } from '@/lib/pricing'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +21,8 @@ export async function GET(
     session: {
       ...resolved,
       estimated_cost,
+      // Claude Code priced a session that reported its cost: no rate was borrowed
+      unpriced_models: resolved.reported_cost ? [] : unpricedModels(resolved.model_usage),
       slug: resolved.slug_name,
       ai_title: resolved.ai_title,
       version: resolved.cc_version,

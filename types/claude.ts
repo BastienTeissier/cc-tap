@@ -17,8 +17,20 @@ export interface ModelUsage {
   outputTokens: number
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
+  /** The part of cacheCreationInputTokens written to the 1-hour cache (2× input, vs 1.25× for
+   *  the 5-minute one). Absent in Claude Code's own files and in older records: all 5-minute. */
+  cacheCreation1hInputTokens?: number
+  /** The model's cost: Claude Code's figure when the session reported one, else the
+   *  pricing table's. 0 means not priced yet (Claude Code's own files may carry it). */
   costUSD: number
   webSearchRequests: number
+}
+
+/** A session's cost as Claude Code wrote it in its last cost-state line */
+export interface ReportedCost {
+  total: number
+  /** per model id, as the transcript's assistant lines name it */
+  by_model: Record<string, number>
 }
 
 export interface LongestSession {
@@ -79,6 +91,9 @@ export interface SessionMeta {
   model_usage?: Record<string, ModelUsage>
   /** Per-model usage of the sub-agent / workflow transcripts alone, a subset of model_usage */
   agent_model_usage?: Record<string, ModelUsage>
+  /** The cost Claude Code reported in the transcript, when it covers the whole session
+   *  (lib/reported-cost.ts); null or absent means the cost is the pricing table's estimate */
+  reported_cost?: ReportedCost | null
   /** Sub-agent transcripts (Agent, Task, Workflow runs) that were read for this session */
   agent_count?: number
 }
@@ -131,9 +146,17 @@ export interface SessionSlice extends SessionMetrics {
   partial: boolean
 }
 
+/** A model the pricing table has no entry for, and the entry whose rates it was charged at */
+export interface UnpricedModel {
+  model: string
+  priced_as: string
+}
+
 export interface SessionWithFacet extends SessionMeta {
   facet?: Facet
   estimated_cost: number
+  /** Models in model_usage priced at another entry's rates, so estimated_cost is an estimate */
+  unpriced_models?: UnpricedModel[]
   slug?: string
   ai_title?: string
   version?: string
@@ -360,6 +383,9 @@ export interface ModelCostBreakdown {
   estimated_cost: number
   cache_savings: number
   cache_hit_rate: number
+  /** Set when the pricing table has no entry for this model's release: the
+   *  entry whose rates were used instead, so the cost is an estimate */
+  priced_as?: string
 }
 
 export interface DailyCost {
@@ -379,6 +405,9 @@ export interface ProjectCost {
 export interface CostAnalytics {
   total_cost: number
   total_savings: number
+  /** Sessions in range, and how many of them are priced from the table rather than by Claude Code */
+  sessions: number
+  sessions_estimated: number
   models: ModelCostBreakdown[]
   daily: DailyCost[]
   by_project: ProjectCost[]

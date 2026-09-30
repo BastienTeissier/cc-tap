@@ -1,20 +1,28 @@
-import type { TurnUsage, ModelUsage, SessionMeta } from '@/types/claude'
+import type { TurnUsage, ModelUsage, SessionMeta, UnpricedModel } from '@/types/claude'
+import { parseModel } from '@/lib/model-label'
 
 interface ModelPricing {
   input: number
   output: number
+  /** 5-minute cache write, 1.25× input */
   cacheWrite: number
+  /** 1-hour cache write; 2× input when an entry does not name it */
+  cacheWrite1h?: number
   cacheRead: number
 }
 
-// Vendored defaults — values are $ per million tokens. cacheWrite uses the
-// 5-minute ephemeral rate (the common case); users can override via
-// ~/.cc-lens/pricing.json. Source: claude.com/pricing as of 2026-09.
+// Vendored defaults — values are $ per million tokens. cacheWrite is the
+// 5-minute ephemeral rate; a 1-hour write costs 2× input on every model
+// (cacheWrite1h), and Claude Code writes its main thread to the 1-hour cache.
+// Users can override via ~/.cc-lens/pricing.json. Source: claude.com/pricing
+// as of 2026-09.
 const DEFAULT_PRICING_PER_MTOK: Record<string, ModelPricing> = {
   // Fable 5.1 — $10 / $50, cache reads cut to $0.25 (vs 10% of input elsewhere)
   'claude-fable-5-1':  { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 0.25 },
   // Fable 5 — $10 / $50
   'claude-fable-5':    { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 1.00 },
+  // Opus 5.5 — $4 / $20, cache reads $0.20 (vs 10% of input elsewhere)
+  'claude-opus-5-5':   { input: 4.00, output: 20.00, cacheWrite: 5.00,  cacheRead: 0.20 },
   // Opus 5 — $5 / $25
   'claude-opus-5':     { input: 5.00, output: 25.00, cacheWrite: 6.25,  cacheRead: 0.50 },
   // Opus 4.x current generation — $5 / $25
@@ -25,6 +33,8 @@ const DEFAULT_PRICING_PER_MTOK: Record<string, ModelPricing> = {
   // Opus 4.1 / 4.0 — legacy $15 / $75
   'claude-opus-4-1':   { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
   'claude-opus-4':     { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+  // Sonnet 5.5 — $2 / $10
+  'claude-sonnet-5-5': { input: 2.00, output: 10.00, cacheWrite: 2.50,  cacheRead: 0.20 },
   // Sonnet 5 — $2 / $10
   'claude-sonnet-5':   { input: 2.00, output: 10.00, cacheWrite: 2.50,  cacheRead: 0.20 },
   // Sonnet 4.x — $3 / $15
@@ -37,12 +47,13 @@ const DEFAULT_PRICING_PER_MTOK: Record<string, ModelPricing> = {
   'claude-haiku-3-5':  { input: 0.80, output:  4.00, cacheWrite: 1.00,  cacheRead: 0.08 },
 }
 
-function toPerToken(p: ModelPricing): ModelPricing {
+function toPerToken(p: ModelPricing): Required<ModelPricing> {
   return {
-    input:      p.input      / 1_000_000,
-    output:     p.output     / 1_000_000,
-    cacheWrite: p.cacheWrite / 1_000_000,
-    cacheRead:  p.cacheRead  / 1_000_000,
+    input:        p.input      / 1_000_000,
+    output:       p.output     / 1_000_000,
+    cacheWrite:   p.cacheWrite / 1_000_000,
+    cacheWrite1h: (p.cacheWrite1h ?? p.input * 2) / 1_000_000,
+    cacheRead:    p.cacheRead  / 1_000_000,
   }
 }
 
@@ -53,6 +64,7 @@ function isValidEntry(v: unknown): v is ModelPricing {
     typeof o.input      === 'number' &&
     typeof o.output     === 'number' &&
     typeof o.cacheWrite === 'number' &&
+    (o.cacheWrite1h === undefined || typeof o.cacheWrite1h === 'number') &&
     typeof o.cacheRead  === 'number'
   )
 }
@@ -89,15 +101,15 @@ function loadUserOverrides(): Record<string, ModelPricing> {
   }
 }
 
-let cachedPricing: Record<string, ModelPricing> | null = null
+let cachedPricing: Record<string, Required<ModelPricing>> | null = null
 // Table keys, longest first, so date-suffixed IDs resolve to the most specific
 // entry (claude-opus-4-5-20251101 → claude-opus-4-5, while
 // claude-opus-4-20250514 falls through to claude-opus-4's legacy rate).
 let cachedKeysLongestFirst: string[] = []
-function getPricingTable(): Record<string, ModelPricing> {
+function getPricingTable(): Record<string, Required<ModelPricing>> {
   if (cachedPricing) return cachedPricing
   const merged: Record<string, ModelPricing> = { ...DEFAULT_PRICING_PER_MTOK, ...loadUserOverrides() }
-  const perToken: Record<string, ModelPricing> = {}
+  const perToken: Record<string, Required<ModelPricing>> = {}
   for (const [k, v] of Object.entries(merged)) perToken[k] = toPerToken(v)
   cachedPricing = perToken
   cachedKeysLongestFirst = Object.keys(perToken).sort((a, b) => b.length - a.length)
@@ -105,7 +117,7 @@ function getPricingTable(): Record<string, ModelPricing> {
 }
 
 // Back-compat export — some callers may have imported PRICING directly.
-export const PRICING: Record<string, ModelPricing> = new Proxy({} as Record<string, ModelPricing>, {
+export const PRICING: Record<string, Required<ModelPricing>> = new Proxy({} as Record<string, Required<ModelPricing>>, {
   get:           (_, k: string)        => getPricingTable()[k],
   has:           (_, k: string)        => k in getPricingTable(),
   ownKeys:       ()                    => Reflect.ownKeys(getPricingTable()),
@@ -122,20 +134,45 @@ function matchesPricingKey(model: string, key: string): boolean {
 /** Priced when no model is known: an unrecognised id, or a session whose assistant lines carry no model */
 export const FALLBACK_MODEL = 'claude-opus-4-8'
 
-/** True when we have an exact or prefix pricing entry for this model (vs the fallback guess). */
+/** The pricing entry whose rates this model is charged at: its own, the
+ *  longest prefix entry, or FALLBACK_MODEL when nothing matches. */
+export function pricedAs(model: string): string {
+  const table = getPricingTable()
+  if (table[model]) return model
+  return cachedKeysLongestFirst.find(key => matchesPricingKey(model, key)) ?? FALLBACK_MODEL
+}
+
+/** True when the table has an entry for this model's own release, so its
+ *  cost is not an estimate. A prefix entry only counts when it names the
+ *  same release: claude-opus-4-5-20251101 is claude-opus-4-5's, while
+ *  claude-opus-5-5 merely borrows claude-opus-5's rates. */
 export function hasKnownPricing(model: string): boolean {
   const table = getPricingTable()
   if (table[model]) return true
-  return cachedKeysLongestFirst.some(key => matchesPricingKey(model, key))
+  const release = parseModel(model)
+  return cachedKeysLongestFirst.some(key => {
+    if (!matchesPricingKey(model, key)) return false
+    const keyRelease = parseModel(key)
+    return !release || !keyRelease ||
+      (release.family === keyRelease.family && release.version === keyRelease.version)
+  })
 }
 
-function getPricing(model: string): ModelPricing {
-  const table = getPricingTable()
-  if (table[model]) return table[model]
-  for (const key of cachedKeysLongestFirst) {
-    if (matchesPricingKey(model, key)) return table[key]
-  }
-  return table[FALLBACK_MODEL]
+/** The models of a usage map that hasKnownPricing rejects, with the entry each was charged at */
+export function unpricedModels(usage: Record<string, ModelUsage> | undefined): UnpricedModel[] {
+  return Object.keys(usage ?? {})
+    .filter(model => model !== '<synthetic>' && !hasKnownPricing(model))
+    .map(model => ({ model, priced_as: pricedAs(model) }))
+}
+
+function getPricing(model: string): Required<ModelPricing> {
+  return getPricingTable()[pricedAs(model)]
+}
+
+/** A cache write, its 1-hour part at the 1-hour rate and the rest at the 5-minute one */
+function cacheWriteCost(p: Required<ModelPricing>, written: number, oneHour: number): number {
+  const hour = Math.min(Math.max(oneHour, 0), written)
+  return (written - hour) * p.cacheWrite + hour * p.cacheWrite1h
 }
 
 export function estimateCostFromUsage(model: string, usage: TurnUsage): number {
@@ -143,7 +180,7 @@ export function estimateCostFromUsage(model: string, usage: TurnUsage): number {
   return (
     (usage.input_tokens                ?? 0) * p.input      +
     (usage.output_tokens               ?? 0) * p.output     +
-    (usage.cache_creation_input_tokens ?? 0) * p.cacheWrite +
+    cacheWriteCost(p, usage.cache_creation_input_tokens ?? 0, usage.cache_creation?.ephemeral_1h_input_tokens ?? 0) +
     (usage.cache_read_input_tokens     ?? 0) * p.cacheRead
   )
 }
@@ -168,7 +205,7 @@ export function cacheEfficiency(
   const wouldHavePaidUSD =
     (usage.inputTokens + usage.cacheReadInputTokens) * p.input +
     usage.outputTokens * p.output +
-    usage.cacheCreationInputTokens * p.cacheWrite
+    cacheWriteCost(p, usage.cacheCreationInputTokens, usage.cacheCreation1hInputTokens ?? 0)
   return { savedUSD, hitRate, wouldHavePaidUSD }
 }
 
@@ -177,9 +214,15 @@ export function estimateTotalCostFromModel(model: string, usage: ModelUsage): nu
   return (
     (usage.inputTokens                ?? 0) * p.input      +
     (usage.outputTokens               ?? 0) * p.output     +
-    (usage.cacheCreationInputTokens   ?? 0) * p.cacheWrite +
+    cacheWriteCost(p, usage.cacheCreationInputTokens ?? 0, usage.cacheCreation1hInputTokens ?? 0) +
     (usage.cacheReadInputTokens       ?? 0) * p.cacheRead
   )
+}
+
+/** A model's cost: the costUSD its usage carries (Claude Code's figure, or the
+ *  table's already applied by the ledger), else the table's estimate */
+export function usageCost(model: string, usage: ModelUsage): number {
+  return usage.costUSD > 0 ? usage.costUSD : estimateTotalCostFromModel(model, usage)
 }
 
 /** Plain token totals, the SessionMeta field names */
@@ -198,7 +241,7 @@ export interface TokenTotals {
 export function costOfUsage(modelUsage: Record<string, ModelUsage> | undefined, totals?: TokenTotals): number {
   if (modelUsage && Object.keys(modelUsage).length > 0) {
     let total = 0
-    for (const [model, usage] of Object.entries(modelUsage)) total += estimateTotalCostFromModel(model, usage)
+    for (const [model, usage] of Object.entries(modelUsage)) total += usageCost(model, usage)
     return total
   }
   if (!totals) return 0

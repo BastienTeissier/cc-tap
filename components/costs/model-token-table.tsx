@@ -1,18 +1,9 @@
 import { formatTokens, formatCost } from '@/lib/decode'
+import { modelShortId } from '@/lib/model-label'
 import type { ModelCostBreakdown } from '@/types/claude'
 
 function shortModel(m: string): string {
-  if (m.includes('fable-5-1'))  return 'claude-fable-5.1'
-  if (m.includes('fable-5'))    return 'claude-fable-5'
-  if (m.includes('opus-5'))     return 'claude-opus-5'
-  if (m.includes('opus-4-8'))   return 'claude-opus-4.8'
-  if (m.includes('opus-4-7'))   return 'claude-opus-4.7'
-  if (m.includes('opus-4-6'))   return 'claude-opus-4.6'
-  if (m.includes('opus-4-5'))   return 'claude-opus-4.5'
-  if (m.includes('sonnet-5'))   return 'claude-sonnet-5'
-  if (m.includes('sonnet-4-6')) return 'claude-sonnet-4.6'
-  if (m.includes('haiku-4-5'))  return 'claude-haiku-4.5'
-  return m
+  return modelShortId(m) ?? m
 }
 
 interface Props {
@@ -43,7 +34,14 @@ export function ModelTokenTable({ models }: Props) {
         <tbody>
           {models.map(m => (
             <tr key={m.model} className="border-b border-border/30 hover:bg-muted/50 transition-colors">
-              <td className="py-2 text-foreground/80">{shortModel(m.model)}</td>
+              <td className="py-2 text-foreground/80">
+                {shortModel(m.model)}
+                {m.priced_as && (
+                  <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={`No price entry: charged at ${m.priced_as} rates`}>
+                    est.
+                  </span>
+                )}
+              </td>
               <td className="py-2 text-right text-blue-700 dark:text-[#60a5fa]">{formatTokens(m.input_tokens)}</td>
               <td className="py-2 text-right text-[#d97706]">{formatTokens(m.output_tokens)}</td>
               <td className="py-2 text-right text-[#a78bfa]">{formatTokens(m.cache_write_tokens)}</td>

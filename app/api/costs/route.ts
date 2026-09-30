@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSessions } from '@/lib/claude-reader'
-import { FALLBACK_MODEL, estimateTotalCostFromModel, cacheEfficiency } from '@/lib/pricing'
+import { FALLBACK_MODEL, estimateTotalCostFromModel, cacheEfficiency, hasKnownPricing, pricedAs, usageCost } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 import type { CostAnalytics, ModelCostBreakdown, DailyCost, ProjectCost, ModelUsage, SessionMeta } from '@/types/claude'
 
@@ -38,6 +38,7 @@ function addUsage(target: ModelUsage, usage: ModelUsage) {
   target.outputTokens += usage.outputTokens ?? 0
   target.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0
   target.cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0
+  target.cacheCreation1hInputTokens = (target.cacheCreation1hInputTokens ?? 0) + (usage.cacheCreation1hInputTokens ?? 0)
   target.costUSD += usage.costUSD ?? 0
   target.webSearchRequests += usage.webSearchRequests ?? 0
 }
@@ -46,16 +47,16 @@ function sessionModelUsage(session: SessionMeta): Record<string, ModelUsage> {
   if (session.model_usage && Object.keys(session.model_usage).length > 0) {
     return session.model_usage
   }
-  return {
-    [FALLBACK_MODEL]: {
-      inputTokens: session.input_tokens ?? 0,
-      outputTokens: session.output_tokens ?? 0,
-      cacheCreationInputTokens: session.cache_creation_input_tokens ?? 0,
-      cacheReadInputTokens: session.cache_read_input_tokens ?? 0,
-      costUSD: 0,
-      webSearchRequests: 0,
-    },
+  const usage: ModelUsage = {
+    inputTokens: session.input_tokens ?? 0,
+    outputTokens: session.output_tokens ?? 0,
+    cacheCreationInputTokens: session.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: session.cache_read_input_tokens ?? 0,
+    costUSD: 0,
+    webSearchRequests: 0,
   }
+  // Priced here, like the ledger prices the others: a model's costUSD is summed across sessions
+  return { [FALLBACK_MODEL]: { ...usage, costUSD: estimateTotalCostFromModel(FALLBACK_MODEL, usage) } }
 }
 
 export async function GET(req: Request) {
@@ -68,6 +69,15 @@ export async function GET(req: Request) {
     : sessions
 
   const modelUsage: Record<string, ModelUsage> = {}
+  // Models of the sessions priced from the table: only those can be charged at a borrowed rate
+  const estimatedModels = new Set<string>()
+  let sessionsEstimated = 0
+  for (const session of filteredSessions) {
+    if (!session.reported_cost) {
+      sessionsEstimated++
+      for (const model of Object.keys(sessionModelUsage(session))) estimatedModels.add(model)
+    }
+  }
   for (const session of filteredSessions) {
     for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
       const tokenTotal =
@@ -75,7 +85,7 @@ export async function GET(req: Request) {
         (usage.outputTokens ?? 0) +
         (usage.cacheReadInputTokens ?? 0) +
         (usage.cacheCreationInputTokens ?? 0)
-      if (model === '<synthetic>' || tokenTotal === 0) continue
+      if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
       const existing = modelUsage[model] ?? emptyUsage()
       addUsage(existing, usage)
       modelUsage[model] = existing
@@ -86,7 +96,7 @@ export async function GET(req: Request) {
   let totalCost = 0
   let totalSavings = 0
   const models: ModelCostBreakdown[] = Object.entries(modelUsage).map(([model, usage]) => {
-    const cost = estimateTotalCostFromModel(model, usage)
+    const cost = usageCost(model, usage)
     const eff = cacheEfficiency(model, usage)
     totalCost += cost
     totalSavings += eff.savedUSD
@@ -99,6 +109,7 @@ export async function GET(req: Request) {
       estimated_cost: cost,
       cache_savings: eff.savedUSD ?? 0,
       cache_hit_rate: eff.hitRate ?? 0,
+      ...(estimatedModels.has(model) && !hasKnownPricing(model) ? { priced_as: pricedAs(model) } : {}),
     }
   }).sort((a, b) => b.estimated_cost - a.estimated_cost)
 
@@ -114,7 +125,7 @@ export async function GET(req: Request) {
         (usage.outputTokens ?? 0) +
         (usage.cacheReadInputTokens ?? 0) +
         (usage.cacheCreationInputTokens ?? 0)
-      if (model === '<synthetic>' || tokenTotal === 0) continue
+      if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
       const existing = day[model] ?? emptyUsage()
       addUsage(existing, usage)
       day[model] = existing
@@ -127,7 +138,7 @@ export async function GET(req: Request) {
       const costs: Record<string, number> = {}
       let dayTotal = 0
       for (const [model, usage] of Object.entries(usageByModel)) {
-        const cost = estimateTotalCostFromModel(model, usage)
+        const cost = usageCost(model, usage)
         costs[model] = cost
         dayTotal += cost
       }
@@ -145,7 +156,7 @@ export async function GET(req: Request) {
     let output = 0
     for (const [model, usage] of Object.entries(sessionModelUsage(s))) {
       if (model === '<synthetic>') continue
-      cost += estimateTotalCostFromModel(model, usage)
+      cost += usageCost(model, usage)
       input += usage.inputTokens ?? 0
       output += usage.outputTokens ?? 0
     }
@@ -170,6 +181,14 @@ export async function GET(req: Request) {
     .sort((a, b) => b.estimated_cost - a.estimated_cost)
     .slice(0, 20)
 
-  const result: CostAnalytics = { total_cost: totalCost, total_savings: totalSavings, models, daily, by_project }
+  const result: CostAnalytics = {
+    total_cost: totalCost,
+    total_savings: totalSavings,
+    sessions: filteredSessions.length,
+    sessions_estimated: sessionsEstimated,
+    models,
+    daily,
+    by_project,
+  }
   return NextResponse.json(result)
 }

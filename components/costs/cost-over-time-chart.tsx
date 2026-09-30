@@ -3,16 +3,19 @@
 import { useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { formatCost } from '@/lib/decode'
+import { modelLabel } from '@/lib/model-label'
 import type { DailyCost } from '@/types/claude'
 
 const MODEL_COLORS: Record<string, string> = {
   'claude-fable-5-1':       '#ec4899',
   'claude-fable-5':         '#a21caf',
+  'claude-opus-5-5':        '#b91c1c',
   'claude-opus-5':          '#ef4444',
   'claude-opus-4-8':        '#fb923c',
   'claude-opus-4-7':        '#f97316',
   'claude-opus-4-6':        '#d97706',
   'claude-opus-4-5-20251101': '#a78bfa',
+  'claude-sonnet-5-5':      '#1e40af',
   'claude-sonnet-5':        '#2563eb',
   'claude-sonnet-4-6':      'var(--viz-sky)',
   'claude-haiku-4-5':       '#34d399',
@@ -29,17 +32,7 @@ function colorForModel(m: string): string {
 }
 
 function shortModel(m: string): string {
-  if (m.includes('fable-5-1'))  return 'Fable 5.1'
-  if (m.includes('fable-5'))    return 'Fable 5'
-  if (m.includes('opus-5'))     return 'Opus 5'
-  if (m.includes('opus-4-8'))   return 'Opus 4.8'
-  if (m.includes('opus-4-7'))   return 'Opus 4.7'
-  if (m.includes('opus-4-6'))   return 'Opus 4.6'
-  if (m.includes('opus-4-5'))   return 'Opus 4.5'
-  if (m.includes('sonnet-5'))   return 'Sonnet 5'
-  if (m.includes('sonnet-4-6')) return 'Sonnet 4.6'
-  if (m.includes('haiku-4-5'))  return 'Haiku 4.5'
-  return m
+  return modelLabel(m) ?? m
 }
 
 interface Props {

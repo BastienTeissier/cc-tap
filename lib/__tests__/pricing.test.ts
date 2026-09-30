@@ -14,6 +14,9 @@ import type { TurnUsage } from '@/types/claude'
 import {
   getPricing,
   hasKnownPricing,
+  pricedAs,
+  unpricedModels,
+  FALLBACK_MODEL,
   estimateCostFromUsage,
   estimateTotalCostFromModel,
   cacheEfficiency,
@@ -38,6 +41,16 @@ describe('getPricing', () => {
     expect(getPricing('claude-sonnet-5').input * MTOK).toBeCloseTo(2)
     expect(getPricing('claude-sonnet-5').output * MTOK).toBeCloseTo(10)
     expect(hasKnownPricing('claude-sonnet-5')).toBe(true)
+  })
+
+  it('prices the 5.5 releases on their own entries, not through the 5 prefix', () => {
+    // Opus 5.5 is cheaper than Opus 5; the claude-opus-5 prefix would charge $5 / $25
+    expect(getPricing('claude-opus-5-5').input * MTOK).toBeCloseTo(4)
+    expect(getPricing('claude-opus-5-5').output * MTOK).toBeCloseTo(20)
+    expect(getPricing('claude-opus-5-5').cacheRead * MTOK).toBeCloseTo(0.2)
+    expect(getPricing('claude-opus-5-5-20260901').input * MTOK).toBeCloseTo(4)
+    expect(getPricing('claude-sonnet-5-5').input * MTOK).toBeCloseTo(2)
+    expect(getPricing('claude-sonnet-5-5').output * MTOK).toBeCloseTo(10)
   })
 
   it('resolves date-suffixed IDs to the most specific prefix', () => {
@@ -67,6 +80,60 @@ describe('hasKnownPricing', () => {
     expect(hasKnownPricing('claude-opus-4-8')).toBe(true)
     expect(hasKnownPricing('claude-opus-4-5-20251101')).toBe(true)
     expect(hasKnownPricing('some-future-model')).toBe(false)
+  })
+
+  it('is false for a release that only borrows a prefix entry', () => {
+    // claude-opus-5-9 matches claude-opus-5 by prefix, but that entry prices Opus 5
+    expect(hasKnownPricing('claude-opus-5-9')).toBe(false)
+    expect(hasKnownPricing('claude-sonnet-6')).toBe(false)
+    expect(hasKnownPricing('claude-opus-4-20250514')).toBe(true)
+    expect(hasKnownPricing('claude-opus-5-5-20260901')).toBe(true)
+  })
+})
+
+describe('unpricedModels', () => {
+  it('lists only the models charged at another entry, skipping <synthetic>', () => {
+    const u = { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, webSearchRequests: 0 }
+    expect(unpricedModels({ 'claude-opus-5-5': u, 'claude-opus-5-9': u, 'claude-sonnet-6': u, '<synthetic>': u })).toEqual([
+      { model: 'claude-opus-5-9', priced_as: 'claude-opus-5' },
+      { model: 'claude-sonnet-6', priced_as: FALLBACK_MODEL },
+    ])
+    expect(unpricedModels(undefined)).toEqual([])
+  })
+})
+
+describe('pricedAs', () => {
+  it('names the entry whose rates were used', () => {
+    expect(pricedAs('claude-opus-5-5')).toBe('claude-opus-5-5')
+    expect(pricedAs('claude-opus-4-5-20251101')).toBe('claude-opus-4-5')
+    expect(pricedAs('claude-opus-5-9')).toBe('claude-opus-5')
+    expect(pricedAs('claude-sonnet-6')).toBe(FALLBACK_MODEL)
+  })
+})
+
+describe('1-hour cache writes', () => {
+  // A main-thread turn: Claude Code writes it to the 1-hour cache
+  const usage: TurnUsage = {
+    input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: MTOK,
+    cache_creation: { ephemeral_5m_input_tokens: 250_000, ephemeral_1h_input_tokens: 750_000 },
+  }
+
+  it('cost 2× input, the 5-minute ones 1.25×', () => {
+    expect(getPricing('claude-fable-5-1').cacheWrite1h * MTOK).toBeCloseTo(20)
+    expect(getPricing('claude-opus-5-5').cacheWrite1h * MTOK).toBeCloseTo(8)
+    expect(estimateCostFromUsage('claude-fable-5-1', usage)).toBeCloseTo(0.25 * 12.5 + 0.75 * 20)
+  })
+
+  it('are priced from the per-model totals too', () => {
+    const cost = estimateTotalCostFromModel('claude-fable-5-1', {
+      inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: MTOK,
+      cacheCreation1hInputTokens: 750_000, costUSD: 0, webSearchRequests: 0,
+    })
+    expect(cost).toBeCloseTo(0.25 * 12.5 + 0.75 * 20)
+  })
+
+  it('without a TTL split, are all 5-minute ones, as before', () => {
+    expect(estimateCostFromUsage('claude-fable-5-1', { ...usage, cache_creation: undefined })).toBeCloseTo(12.5)
   })
 })
 

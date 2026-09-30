@@ -9,6 +9,7 @@ import { TurnList } from '@/components/sessions/replay/turn-list'
 import { SessionBadges } from '@/components/sessions/session-badges'
 import { formatCost, formatTokens, formatDuration, projectDisplayName } from '@/lib/decode'
 import { agentsCost as priceAgents } from '@/lib/pricing'
+import { modelLabel } from '@/lib/model-label'
 import { groupByRun, sortWorkflowAgents } from '@/lib/workflow-agents'
 import type { AgentRun, AgentTimeline, ReplayData, SessionWithFacet, WorkflowRun } from '@/types/claude'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -91,6 +92,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const agentsCost = useMemo(() => (meta ? priceAgents(meta) : 0), [meta])
   const sessionAgentCount = meta?.agent_count ?? 0
   const headerCost = win ? (view?.total_cost ?? 0) : sessionTotalCost
+  // Models charged at another entry's rates; a window only shows its own turns' models
+  const unpriced = useMemo(() => {
+    const all = meta?.unpriced_models ?? []
+    if (!win || !view) return all
+    const inView = new Set(view.turns.map(t => t.model))
+    return all.filter(u => inView.has(u.model))
+  }, [meta, win, view])
 
   const [tab, setTab] = useState('replay')
 
@@ -293,6 +301,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     ? `main ${formatCost(sessionTotalCost - agentsCost)} · agents ${formatCost(agentsCost)} (${sessionAgentCount})`
                     : 'Estimated spend'}
               </p>
+              {unpriced.length > 0 && (
+                <p
+                  className="mt-1.5 flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400"
+                  title={`${unpriced.map(u => `${u.model} is charged at ${u.priced_as} rates`).join('\n')}\nAdd an entry keyed on the model id to ~/.cc-lens/pricing.json to price it exactly.`}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                  <span>
+                    No price for {unpriced.map(u => modelLabel(u.model) ?? u.model).join(', ')}: charged at{' '}
+                    {[...new Set(unpriced.map(u => u.priced_as))].join(', ')} rates
+                  </span>
+                </p>
+              )}
             </CardContent>
           </Card>
 

@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, Info, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 // Live Capture has two modes. OTel (default): Claude Code keeps talking to
 // api.anthropic.com and logs each call's bodies to a directory the ingester
@@ -33,6 +34,35 @@ export function proxyCommand(port: number): string {
 
 export const PROXY_CAVEAT =
   'A custom ANTHROPIC_BASE_URL changes how Claude Code behaves (auto-mode safeguards, beta headers, tool search off unless ENABLE_TOOL_SEARCH=true), so captures may not match a normal session.'
+
+export const OTEL_EXPLANATION =
+  'Claude Code keeps talking to api.anthropic.com and behaves exactly as usual. It writes each request and response to disk (OTEL_LOG_RAW_API_BODIES); cc-tap records them, then deletes the files.'
+
+export const PROXY_EXPLANATION =
+  `Routes Claude Code through a local proxy to record the wire traffic: the SSE stream as sent, calls besides /v1/messages, the exact status and timing of every attempt. ${PROXY_CAVEAT}`
+
+/** Icon with the explanation of a capture mode in a tooltip: "info" for OTel, "warning" for the proxy. */
+export function CaptureModeHint({ kind, text }: { kind: 'info' | 'warning'; text: string }) {
+  const Icon = kind === 'info' ? Info : TriangleAlert
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={kind === 'info' ? 'About live capture' : 'About proxy mode'}
+            className={kind === 'info'
+              ? 'text-muted-foreground hover:text-foreground'
+              : 'text-amber-600 hover:text-amber-500 dark:text-amber-500'}
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-left">{text}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
 const fetcher = (url: string) => fetch(url).then(r => {
   if (!r.ok) throw new Error(`API error ${r.status}`)

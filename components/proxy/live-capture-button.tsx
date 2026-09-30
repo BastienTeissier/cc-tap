@@ -5,7 +5,10 @@ import { Radio, Play, Square, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { CommandSnippet, PROXY_CAVEAT, proxyCommand, useCaptureStatus, type CaptureMode } from './capture-controls'
+import {
+  CaptureModeHint, CommandSnippet, OTEL_EXPLANATION, PROXY_EXPLANATION, proxyCommand, useCaptureStatus,
+  type CaptureMode,
+} from './capture-controls'
 
 function StatusDot({ on }: { on: boolean }) {
   return <span className={cn('inline-flex h-2 w-2 shrink-0 rounded-full', on ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
@@ -66,11 +69,13 @@ export function LiveCaptureButton() {
           <span className="hidden sm:inline">Live Capture</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96 p-0">
+      {/* No auto-focus on open: it would land on the info icon and pop its tooltip over the content. */}
+      <PopoverContent align="end" className="w-96 p-0" onOpenAutoFocus={e => e.preventDefault()}>
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <div className="flex items-center gap-2">
             <StatusDot on={otelRunning} />
             <span className="text-sm font-medium">{otelRunning ? 'Capturing' : 'Capture off'}</span>
+            <CaptureModeHint kind="info" text={OTEL_EXPLANATION} />
           </div>
           <StartStop running={otelRunning} busy={busy !== null} onClick={() => toggle('otel', otelRunning)} />
         </div>
@@ -81,15 +86,10 @@ export function LiveCaptureButton() {
                 Run Claude Code with this variable (or set it in the <code>env</code> of your Claude Code settings):
               </p>
               <CommandSnippet command={otel.command} />
-              <p className="text-xs text-muted-foreground">
-                Claude Code keeps talking to api.anthropic.com and writes each request and response to disk;
-                cc-tap records them, then deletes the files.
-              </p>
             </>
           ) : (
             <p className="text-xs text-muted-foreground">
               Click <strong>Start</strong>{' '}to record the request and response bodies Claude Code logs itself.
-              You&apos;ll get a copyable command to run it with; Claude Code behaves exactly as usual.
             </p>
           )}
         </div>
@@ -101,13 +101,10 @@ export function LiveCaptureButton() {
                 {proxyRunning ? `Proxy on :${port}` : 'Proxy mode'}
                 <span className="ml-1.5 font-normal text-muted-foreground">advanced</span>
               </span>
+              <CaptureModeHint kind="warning" text={PROXY_EXPLANATION} />
             </div>
             <StartStop running={proxyRunning} busy={busy !== null} onClick={() => toggle('proxy', proxyRunning)} />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Routes Claude Code through a local proxy to record the wire traffic: the SSE stream as sent,
-            calls besides /v1/messages, the exact status and timing of every attempt. {PROXY_CAVEAT}
-          </p>
           {proxyRunning && port && <CommandSnippet command={proxyCommand(port)} />}
         </div>
       </PopoverContent>

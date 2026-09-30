@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AnatomyView } from '@/components/sessions/raw-api/anatomy-view'
 import {
-  CommandSnippet, PROXY_CAVEAT, proxyCommand, useCaptureStatus,
+  CaptureModeHint, CommandSnippet, OTEL_EXPLANATION, PROXY_EXPLANATION, proxyCommand, useCaptureStatus,
   type CaptureMode, type OtelStatus, type ProxyStatus,
 } from '@/components/proxy/capture-controls'
 import { formatTokens } from '@/lib/decode'
@@ -56,22 +56,27 @@ function EmptyState({ otel, proxy, onStart }: {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
             <Radio className="h-5 w-5 text-muted-foreground" />
           </div>
-          <h3 className="text-base font-semibold">Live capture is off</h3>
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            Live capture is off
+            <CaptureModeHint kind="info" text={OTEL_EXPLANATION} />
+          </h3>
           <p className="max-w-md text-sm text-muted-foreground">
-            Start capturing to record every request Claude Code sends to the Anthropic API and its response.
-            Claude Code logs them itself (<code className="text-xs">OTEL_LOG_RAW_API_BODIES</code>) and keeps
-            behaving as usual; they stream in here in real time.
+            Start capturing to record every request Claude Code sends to the Anthropic API and its response;
+            they stream in here in real time.
           </p>
           <Button onClick={() => onStart('otel')} className="gap-2 mt-1">
             <Play className="h-4 w-4" />
             Start capture
           </Button>
-          <p className="max-w-md pt-2 text-xs text-muted-foreground">
-            Advanced: to see the wire traffic (raw SSE, calls besides /v1/messages),{' '}
-            <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => onStart('proxy')}>
-              start the proxy
-            </button>{' '}
-            instead. {PROXY_CAVEAT}
+          <p className="flex max-w-md items-center gap-1.5 pt-2 text-xs text-muted-foreground">
+            <span>
+              Advanced: to see the wire traffic,{' '}
+              <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => onStart('proxy')}>
+                start the proxy
+              </button>{' '}
+              instead.
+            </span>
+            <CaptureModeHint kind="warning" text={PROXY_EXPLANATION} />
           </p>
         </CardContent>
       </Card>

@@ -163,7 +163,8 @@ export default function CostsPage() {
                       <TableHead>Model</TableHead>
                       <TableHead className="text-right">Input /MTok</TableHead>
                       <TableHead className="text-right">Output /MTok</TableHead>
-                      <TableHead className="text-right">Cache Write /MTok</TableHead>
+                      <TableHead className="text-right">Cache Write 5m /MTok</TableHead>
+                      <TableHead className="text-right">Cache Write 1h /MTok</TableHead>
                       <TableHead className="text-right">Cache Read /MTok</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -174,6 +175,7 @@ export default function CostsPage() {
                         <TableCell className="text-right font-mono text-blue-700 dark:text-[#60a5fa]">${(p.input * 1_000_000).toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono text-[#d97706]">${(p.output * 1_000_000).toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono text-[#a78bfa]">${(p.cacheWrite * 1_000_000).toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono text-[#a78bfa]">${(p.cacheWrite1h * 1_000_000).toFixed(2)}</TableCell>
                         <TableCell className="text-right font-mono text-[#34d399]">${(p.cacheRead * 1_000_000).toFixed(2)}</TableCell>
                       </TableRow>
                     ))}

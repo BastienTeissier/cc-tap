@@ -17,6 +17,9 @@ export interface ModelUsage {
   outputTokens: number
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
+  /** The part of cacheCreationInputTokens written to the 1-hour cache (2× input, vs 1.25× for
+   *  the 5-minute one). Absent in Claude Code's own files and in older records: all 5-minute. */
+  cacheCreation1hInputTokens?: number
   costUSD: number
   webSearchRequests: number
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { ResponseTracker, maxUsage, responseKey } from '@/lib/response-usage'
+import { ResponseTracker, maxUsage, oneHourWrite, responseKey } from '@/lib/response-usage'
 import { estimateCostFromUsage } from '@/lib/pricing'
 
 // Claude Code writes one line per content block of an API response, each
@@ -63,6 +63,10 @@ describe('responseKey / maxUsage / ResponseTracker', () => {
     expect([add(m1, U1), add(m1, U1), add(m1, U1)]).toEqual([true, false, false])
     expect([add(m2, U2_EARLY), add(m2, U2_FINAL)]).toEqual([true, false])
     expect(sum).toEqual({ input: U1.input_tokens + U2_FINAL.input_tokens, output: U1.output_tokens + U2_FINAL.output_tokens })
+    // The TTL split grows with its response, like the other fields.
+    const m3 = { requestId: 'req_3', message: { id: 'msg_3' } }
+    t.add(m3, { cache_creation_input_tokens: 10, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 10 } })
+    expect(oneHourWrite(t.add(m3, { cache_creation_input_tokens: 25, cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 20 } }).delta)).toBe(10)
     // Two id-less lines are two responses, as before.
     expect([add({ message: {} }, U3), add({ message: {} }, U3)]).toEqual([true, true])
   })

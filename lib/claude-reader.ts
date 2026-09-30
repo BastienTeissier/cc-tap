@@ -17,7 +17,7 @@ import { pruneScanCache, scanFile } from '@/lib/transcript-scan'
 import { mapPool, readJSONLLines } from '@/lib/jsonl'
 import { FALLBACK_MODEL } from '@/lib/pricing'
 import { LedgerBuilder, NO_MODEL, hasModeledTurns, ledgerMetrics, type TurnLedger } from '@/lib/session-ledger'
-import { ResponseTracker, responseKey } from '@/lib/response-usage'
+import { ResponseTracker, oneHourWrite, responseKey } from '@/lib/response-usage'
 
 export { mapPool, readJSONLLines }
 
@@ -193,7 +193,7 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
         }
         if (obj.type === 'assistant') {
           const msg = (obj as { message?: { model?: string; usage?: Record<string, number>; content?: unknown[] } }).message
-          let turnInput = 0, turnOutput = 0, turnCacheRead = 0, turnCacheWrite = 0
+          let turnInput = 0, turnOutput = 0, turnCacheRead = 0, turnCacheWrite = 0, turnCacheWrite1h = 0
           let turnToolCalls = 0
           const quota = (obj as { quotaLimits?: { status?: string; rateLimitType?: string; resetsAt?: number } }).quotaLimits
           if (quota?.status === 'rejected' && quota.rateLimitType === 'five_hour' && typeof quota.resetsAt === 'number' && ts) {
@@ -205,6 +205,7 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
           turnOutput = delta.output_tokens ?? 0
           turnCacheRead = delta.cache_read_input_tokens ?? 0
           turnCacheWrite = delta.cache_creation_input_tokens ?? 0
+          turnCacheWrite1h = oneHourWrite(delta)
           const content = msg?.content
           if (Array.isArray(content)) {
             for (const c of content) {
@@ -223,12 +224,12 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
           const key = responseKey(obj)
           const turn = key === null ? undefined : turnOf.get(key)
           if (!isNew && turn !== undefined) {
-            ledger.growTurn(turn, { input: turnInput, output: turnOutput, cacheRead: turnCacheRead, cacheWrite: turnCacheWrite, toolCalls: turnToolCalls })
+            ledger.growTurn(turn, { input: turnInput, output: turnOutput, cacheRead: turnCacheRead, cacheWrite: turnCacheWrite, cacheWrite1h: turnCacheWrite1h, toolCalls: turnToolCalls })
           } else if (ts) {
             const i = ledger.addTurn({
               ts: new Date(ts).getTime(),
               model: msg?.model ?? NO_MODEL,
-              input: turnInput, output: turnOutput, cacheRead: turnCacheRead, cacheWrite: turnCacheWrite,
+              input: turnInput, output: turnOutput, cacheRead: turnCacheRead, cacheWrite: turnCacheWrite, cacheWrite1h: turnCacheWrite1h,
               toolCalls: turnToolCalls,
             })
             if (key !== null && i >= 0) turnOf.set(key, i)

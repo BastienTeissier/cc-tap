@@ -88,7 +88,7 @@ export function LiveCaptureButton() {
             </>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Click <strong>Start</strong> to record the request and response bodies Claude Code logs itself.
+              Click <strong>Start</strong>{' '}to record the request and response bodies Claude Code logs itself.
               You&apos;ll get a copyable command to run it with; Claude Code behaves exactly as usual.
             </p>
           )}

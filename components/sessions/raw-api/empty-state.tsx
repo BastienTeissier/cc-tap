@@ -1,9 +1,10 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Radio, Terminal } from 'lucide-react'
+import { CommandSnippet } from '@/components/proxy/capture-controls'
 
-const RESUME_COMMAND = `OTEL_LOG_RAW_API_BODIES=file:$HOME/.cc-lens/otel-bodies claude --resume`
+const OTEL_ENV = 'OTEL_LOG_RAW_API_BODIES=file:$HOME/.cc-lens/otel-bodies'
 
-export function CapturesEmptyState({ available }: { available: boolean }) {
+export function CapturesEmptyState({ available, sessionId }: { available: boolean; sessionId?: string }) {
   if (!available) {
     return (
       <Card className="mx-auto max-w-2xl">
@@ -29,11 +30,9 @@ export function CapturesEmptyState({ available }: { available: boolean }) {
         <h3 className="text-base font-semibold">No captures for this session</h3>
         <p className="text-sm text-muted-foreground">
           Nothing was recorded for this session yet. With capture started from <strong>Live Capture</strong>,
-          resume work in this session:
+          resume this session from its project directory:
         </p>
-        <pre className="mx-auto rounded-md bg-muted px-3 py-2 text-left text-xs font-mono text-muted-foreground">
-          {RESUME_COMMAND}
-        </pre>
+        <CommandSnippet command={`${OTEL_ENV} claude --resume${sessionId ? ` ${sessionId}` : ''}`} />
         <p className="text-xs text-muted-foreground">
           In proxy mode, use the command from the Live Capture popover instead.
         </p>

@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 import type { ModelUsage } from '@/types/claude'
 import { formatTokens } from '@/lib/decode'
+import { modelLabel } from '@/lib/model-label'
 
 interface Props {
   modelUsage: Record<string, ModelUsage>
@@ -29,23 +30,8 @@ const MODEL_COLORS = [
 ]
 
 function shortModelName(model: string): string {
-  if (model.includes('fable-5-1'))     return 'Fable 5.1'
-  if (model.includes('fable-5'))       return 'Fable 5'
-  if (model.includes('opus-5'))        return 'Opus 5'
-  if (model.includes('opus-4-8'))      return 'Opus 4.8'
-  if (model.includes('opus-4-7'))      return 'Opus 4.7'
-  if (model.includes('opus-4-6'))      return 'Opus 4.6'
-  if (model.includes('opus-4-5'))      return 'Opus 4.5'
-  if (model.includes('opus-4-1'))      return 'Opus 4.1'
-  if (model.includes('opus-4'))        return 'Opus 4'
-  if (model.includes('sonnet-5'))      return 'Sonnet 5'
-  if (model.includes('sonnet-4-6'))    return 'Sonnet 4.6'
-  if (model.includes('sonnet-4-5'))    return 'Sonnet 4.5'
-  if (model.includes('sonnet-4'))      return 'Sonnet 4'
-  if (model.includes('sonnet'))        return 'Sonnet'
-  if (model.includes('haiku-4-5'))     return 'Haiku 4.5'
-  if (model.includes('haiku-3-5'))     return 'Haiku 3.5'
-  if (model.includes('haiku'))         return 'Haiku'
+  const label = modelLabel(model)
+  if (label) return label
   // Generic fallback
   const parts = model.split('-')
   return parts.slice(0, 3).join('-')

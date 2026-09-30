@@ -15,6 +15,8 @@ const DEFAULT_PRICING_PER_MTOK: Record<string, ModelPricing> = {
   'claude-fable-5-1':  { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 0.25 },
   // Fable 5 — $10 / $50
   'claude-fable-5':    { input: 10.00, output: 50.00, cacheWrite: 12.50, cacheRead: 1.00 },
+  // Opus 5.5 — $4 / $20, cache reads $0.20 (vs 10% of input elsewhere)
+  'claude-opus-5-5':   { input: 4.00, output: 20.00, cacheWrite: 5.00,  cacheRead: 0.20 },
   // Opus 5 — $5 / $25
   'claude-opus-5':     { input: 5.00, output: 25.00, cacheWrite: 6.25,  cacheRead: 0.50 },
   // Opus 4.x current generation — $5 / $25
@@ -25,6 +27,8 @@ const DEFAULT_PRICING_PER_MTOK: Record<string, ModelPricing> = {
   // Opus 4.1 / 4.0 — legacy $15 / $75
   'claude-opus-4-1':   { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
   'claude-opus-4':     { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+  // Sonnet 5.5 — $2 / $10
+  'claude-sonnet-5-5': { input: 2.00, output: 10.00, cacheWrite: 2.50,  cacheRead: 0.20 },
   // Sonnet 5 — $2 / $10
   'claude-sonnet-5':   { input: 2.00, output: 10.00, cacheWrite: 2.50,  cacheRead: 0.20 },
   // Sonnet 4.x — $3 / $15

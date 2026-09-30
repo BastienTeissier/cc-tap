@@ -40,6 +40,16 @@ describe('getPricing', () => {
     expect(hasKnownPricing('claude-sonnet-5')).toBe(true)
   })
 
+  it('prices the 5.5 releases on their own entries, not through the 5 prefix', () => {
+    // Opus 5.5 is cheaper than Opus 5; the claude-opus-5 prefix would charge $5 / $25
+    expect(getPricing('claude-opus-5-5').input * MTOK).toBeCloseTo(4)
+    expect(getPricing('claude-opus-5-5').output * MTOK).toBeCloseTo(20)
+    expect(getPricing('claude-opus-5-5').cacheRead * MTOK).toBeCloseTo(0.2)
+    expect(getPricing('claude-opus-5-5-20260901').input * MTOK).toBeCloseTo(4)
+    expect(getPricing('claude-sonnet-5-5').input * MTOK).toBeCloseTo(2)
+    expect(getPricing('claude-sonnet-5-5').output * MTOK).toBeCloseTo(10)
+  })
+
   it('resolves date-suffixed IDs to the most specific prefix', () => {
     // claude-opus-4-5-20251101 must hit the 4.5 entry ($5), not legacy claude-opus-4
     expect(getPricing('claude-opus-4-5-20251101').input * MTOK).toBeCloseTo(5)

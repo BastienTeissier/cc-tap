@@ -18,6 +18,7 @@ import { mapPool, readJSONLLines } from '@/lib/jsonl'
 import { FALLBACK_MODEL } from '@/lib/pricing'
 import { LedgerBuilder, NO_MODEL, hasModeledTurns, ledgerMetrics, type TurnLedger } from '@/lib/session-ledger'
 import { ResponseTracker, oneHourWrite, responseKey } from '@/lib/response-usage'
+import { readCostState, reportedCost, type CostState } from '@/lib/reported-cost'
 
 export { mapPool, readJSONLLines }
 
@@ -64,6 +65,9 @@ export interface SessionRecord {
   ledger: TurnLedger
   /** Five-hour limit rejections, for /api/usage-windows */
   rate_limit_hits: RateLimitHit[]
+  /** The transcript's last cost-state line, and whether a model call followed it: what
+   *  reported_cost is re-derived from once the sub-agents are folded in */
+  cost_state?: { state: CostState | null; callsAfter: boolean }
 }
 
 interface CacheEntry {
@@ -145,6 +149,8 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
   const responses = new ResponseTracker()
   const turnOf = new Map<string, number>()
   const rateLimitHits: RateLimitHit[] = []
+  let costState: CostState | null = null
+  let callsAfterCostState = false
 
   try {
     // Stream line-by-line rather than buffering the whole file — session
@@ -173,6 +179,10 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
         if (obj.type === 'system' && (obj as { subtype?: string }).subtype === 'compact_boundary') {
           hasCompaction = true
         }
+        if (obj.type === 'cost-state') {
+          costState = readCostState(obj)
+          callsAfterCostState = false
+        }
         if (obj.type === 'user') {
           if (ts) {
             const d = new Date(ts)
@@ -200,6 +210,7 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
             const at = new Date(ts).getTime()
             if (!isNaN(at)) rateLimitHits.push({ ts: at, resets_at: quota.resetsAt * 1000 })
           }
+          if (msg?.model && !msg.model.startsWith('<')) callsAfterCostState = true
           const { isNew, delta } = responses.add(obj, msg?.usage)
           turnInput = delta.input_tokens ?? 0
           turnOutput = delta.output_tokens ?? 0
@@ -247,7 +258,8 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
   const end = lastTime ? new Date(lastTime).getTime() : start
   const durationMinutes = (end - start) / 60_000
   const turns = ledger.build()
-  const m = ledgerMetrics(turns, null, durationMinutes)
+  const reported = reportedCost(costState, callsAfterCostState, turns.ts)
+  const m = ledgerMetrics(turns, null, durationMinutes, reported)
 
   const session: ParsedSession = {
     session_id: sessionId,
@@ -280,6 +292,7 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
     message_hours: messageHours,
     user_message_timestamps: userMessageTimestamps,
     model_usage: m.model_usage,
+    reported_cost: reported,
     cwd,
     slug_name: slugName,
     ai_title: aiTitle,
@@ -288,7 +301,7 @@ async function parseSessionFile(filePath: string, sessionId: string): Promise<Se
     has_compaction: hasCompaction,
     has_thinking: hasThinking,
   }
-  return { session, ledger: turns, rate_limit_hits: rateLimitHits }
+  return { session, ledger: turns, rate_limit_hits: rateLimitHits, cost_state: { state: costState, callsAfter: callsAfterCostState } }
 }
 
 // ─── Sub-agent usage ─────────────────────────────────────────────────────────
@@ -351,7 +364,9 @@ async function withAgentUsage(record: SessionRecord, jsonlPath: string): Promise
   if (agentCount === 0) return record
 
   const folded = ledger.build()
-  const m = ledgerMetrics(folded, null, session.duration_minutes)
+  // The agents' turns count too: one older than the cost-state's start means a process died unreported
+  const reported = reportedCost(record.cost_state?.state ?? null, record.cost_state?.callsAfter ?? false, folded.ts)
+  const m = ledgerMetrics(folded, null, session.duration_minutes, reported)
   return {
     ...record,
     ledger: folded,
@@ -363,6 +378,7 @@ async function withAgentUsage(record: SessionRecord, jsonlPath: string): Promise
       cache_creation_input_tokens: m.cache_creation_input_tokens,
       model_usage: m.model_usage,
       agent_model_usage: m.agent_model_usage,
+      reported_cost: reported,
       agent_count: agentCount,
       uses_task_agent: true,
     },

@@ -21,7 +21,8 @@ export async function GET(
     session: {
       ...resolved,
       estimated_cost,
-      unpriced_models: unpricedModels(resolved.model_usage),
+      // Claude Code priced a session that reported its cost: no rate was borrowed
+      unpriced_models: resolved.reported_cost ? [] : unpricedModels(resolved.model_usage),
       slug: resolved.slug_name,
       ai_title: resolved.ai_title,
       version: resolved.cc_version,

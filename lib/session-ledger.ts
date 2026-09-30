@@ -1,5 +1,5 @@
-import type { ModelUsage, SessionMeta, SessionMetrics, SessionSlice, SessionsRangeSummary } from '@/types/claude'
-import { agentsCost, costOfUsage, sessionCost } from '@/lib/pricing'
+import type { ModelUsage, ReportedCost, SessionMeta, SessionMetrics, SessionSlice, SessionsRangeSummary } from '@/types/claude'
+import { agentsCost, costOfUsage, estimateTotalCostFromModel, sessionCost } from '@/lib/pricing'
 import { intersectsWindow, type TimeWindow } from '@/lib/time-window'
 
 // ─── Turn ledger ─────────────────────────────────────────────────────────────
@@ -168,12 +168,43 @@ function addUsage(target: Record<string, ModelUsage>, model: string, input: numb
 }
 
 /**
+ * The multiplier that turns each model's table estimate into its share of
+ * Claude Code's reported cost: that model's reported cost over its estimate
+ * for the whole session, then one factor for the whole session so the models
+ * add up to the reported total (it holds calls the transcripts never show:
+ * session titles, side requests). Null when nothing in the ledger is priced.
+ */
+function calibration(whole: Record<string, ModelUsage>, reported: ReportedCost): ((model: string) => number) | null {
+  const factor: Record<string, number> = {}
+  let calibrated = 0
+  for (const [model, u] of Object.entries(whole)) {
+    const estimate = estimateTotalCostFromModel(model, u)
+    const own = reported.by_model[model]
+    factor[model] = own !== undefined && own > 0 && estimate > 0 ? own / estimate : 1
+    calibrated += estimate * factor[model]
+  }
+  if (calibrated <= 0) return null
+  const scale = reported.total / calibrated
+  return model => (factor[model] ?? 1) * scale
+}
+
+/** Sets costUSD on every model of `usage`: the table's estimate, times `scale` */
+function price(usage: Record<string, ModelUsage>, scale: (model: string) => number): void {
+  for (const [model, u] of Object.entries(usage)) u.costUSD = estimateTotalCostFromModel(model, u) * scale(model)
+}
+
+/**
  * Sum the ledger over the turns inside `w` (inclusive on both ends, like
  * `inWindow`; `null` means every turn). Turns without a model name count in
  * the token totals but not in `model_usage`, so pricing falls back to the
  * default model's rate when nothing is attributed.
+ *
+ * Each model's costUSD is the table's estimate, or with `reported` (the cost
+ * Claude Code wrote for the whole session), that cost spread over the turns in
+ * proportion to their estimate: the whole session then costs exactly what
+ * Claude Code reported, and a window its share of it.
  */
-export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinutes: number): LedgerMetrics {
+export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinutes: number, reported: ReportedCost | null = null): LedgerMetrics {
   let input = 0, output = 0, cacheRead = 0, cacheWrite = 0
   let assistantCount = 0, toolCalls = 0, agentsTokens = 0
   const modelUsage: Record<string, ModelUsage> = {}
@@ -202,6 +233,14 @@ export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinut
   for (let i = 0; i < l.userTs.length; i++) {
     const t = l.userTs[i]
     if (!w || (t >= w.from && t <= w.to)) userCount++
+  }
+
+  const calibrated = reported && calibration(w ? ledgerMetrics(l, null, durationMinutes).model_usage : modelUsage, reported)
+  price(modelUsage, calibrated || (() => 1))
+  price(agentUsage, calibrated || (() => 1))
+  // Claude Code billed only calls no transcript line shows (a session title): that is the whole session
+  if (reported && !calibrated && !w) {
+    for (const [model, cost] of Object.entries(reported.by_model)) (modelUsage[model] ??= emptyUsage()).costUSD = cost
   }
 
   const totals = { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite }
@@ -267,7 +306,7 @@ export function sliceSession({ session: s, ledger }: LedgeredSession, w: TimeWin
 
   const partial = start < w.from || end > w.to
   const durationMinutes = Math.max(0, Math.min(end, w.to) - Math.max(start, w.from)) / 60_000
-  const { agent_model_usage: _agents, ...metrics } = ledgerMetrics(ledger, w, durationMinutes)
+  const { agent_model_usage: _agents, ...metrics } = ledgerMetrics(ledger, w, durationMinutes, s.reported_cost ?? null)
   return { from: w.from, to: w.to, partial, ...metrics }
 }
 

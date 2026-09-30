@@ -90,6 +90,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   // Memoised for the React Compiler: a bare call on `meta` reads as a possible
   // mutation, and the drawer callbacks below then lose their manual memoization
   const agentsCost = useMemo(() => (meta ? priceAgents(meta) : 0), [meta])
+  // Claude Code's own figure when its cost-state line covers the whole session, else the table's
+  const costSource = meta?.reported_cost ? 'Reported by Claude Code' : 'Estimated from the rate table'
   const sessionAgentCount = meta?.agent_count ?? 0
   const headerCost = win ? (view?.total_cost ?? 0) : sessionTotalCost
   // Models charged at another entry's rates; a window only shows its own turns' models
@@ -299,8 +301,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   ? 'Estimated orchestrator spend in window'
                   : sessionAgentCount > 0
                     ? `main ${formatCost(sessionTotalCost - agentsCost)} · agents ${formatCost(agentsCost)} (${sessionAgentCount})`
-                    : 'Estimated spend'}
+                    : costSource}
               </p>
+              {!win && sessionAgentCount > 0 && <p className="mt-0.5 text-xs text-muted-foreground">{costSource}</p>}
               {unpriced.length > 0 && (
                 <p
                   className="mt-1.5 flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400"

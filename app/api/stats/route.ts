@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { readStatsCache, getSessions, getClaudeStorageBytes } from '@/lib/claude-reader'
-import { estimateTotalCostFromModel, getPricing } from '@/lib/pricing'
+import { getPricing, usageCost } from '@/lib/pricing'
 import type { DailyActivity, ModelUsage, SessionMeta } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
@@ -55,6 +55,7 @@ function computeModelUsageFromSessions(sessions: SessionMeta[]): Record<string, 
       existing.outputTokens += usage.outputTokens ?? 0
       existing.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0
       existing.cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0
+      existing.cacheCreation1hInputTokens = (existing.cacheCreation1hInputTokens ?? 0) + (usage.cacheCreation1hInputTokens ?? 0)
       existing.costUSD += usage.costUSD ?? 0
       existing.webSearchRequests += usage.webSearchRequests ?? 0
       byModel[model] = existing
@@ -91,7 +92,7 @@ export async function GET() {
   let totalCost = 0
   let totalCacheSavings = 0
   for (const [model, usage] of Object.entries(modelUsage)) {
-    const cost = estimateTotalCostFromModel(model, usage)
+    const cost = usageCost(model, usage)
     totalCost += cost
     const p = getPricing(model)
     totalCacheSavings += (usage.cacheReadInputTokens ?? 0) * (p.input - p.cacheRead)

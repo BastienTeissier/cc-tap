@@ -219,6 +219,12 @@ export function estimateTotalCostFromModel(model: string, usage: ModelUsage): nu
   )
 }
 
+/** A model's cost: the costUSD its usage carries (Claude Code's figure, or the
+ *  table's already applied by the ledger), else the table's estimate */
+export function usageCost(model: string, usage: ModelUsage): number {
+  return usage.costUSD > 0 ? usage.costUSD : estimateTotalCostFromModel(model, usage)
+}
+
 /** Plain token totals, the SessionMeta field names */
 export interface TokenTotals {
   input_tokens: number
@@ -235,7 +241,7 @@ export interface TokenTotals {
 export function costOfUsage(modelUsage: Record<string, ModelUsage> | undefined, totals?: TokenTotals): number {
   if (modelUsage && Object.keys(modelUsage).length > 0) {
     let total = 0
-    for (const [model, usage] of Object.entries(modelUsage)) total += estimateTotalCostFromModel(model, usage)
+    for (const [model, usage] of Object.entries(modelUsage)) total += usageCost(model, usage)
     return total
   }
   if (!totals) return 0

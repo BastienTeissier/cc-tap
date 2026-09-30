@@ -34,7 +34,14 @@ export function ModelTokenTable({ models }: Props) {
         <tbody>
           {models.map(m => (
             <tr key={m.model} className="border-b border-border/30 hover:bg-muted/50 transition-colors">
-              <td className="py-2 text-foreground/80">{shortModel(m.model)}</td>
+              <td className="py-2 text-foreground/80">
+                {shortModel(m.model)}
+                {m.priced_as && (
+                  <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={`No price entry: charged at ${m.priced_as} rates`}>
+                    est.
+                  </span>
+                )}
+              </td>
               <td className="py-2 text-right text-blue-700 dark:text-[#60a5fa]">{formatTokens(m.input_tokens)}</td>
               <td className="py-2 text-right text-[#d97706]">{formatTokens(m.output_tokens)}</td>
               <td className="py-2 text-right text-[#a78bfa]">{formatTokens(m.cache_write_tokens)}</td>

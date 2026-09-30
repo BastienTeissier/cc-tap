@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSessions } from '@/lib/claude-reader'
-import { FALLBACK_MODEL, estimateTotalCostFromModel, cacheEfficiency } from '@/lib/pricing'
+import { FALLBACK_MODEL, estimateTotalCostFromModel, cacheEfficiency, hasKnownPricing, pricedAs } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 import type { CostAnalytics, ModelCostBreakdown, DailyCost, ProjectCost, ModelUsage, SessionMeta } from '@/types/claude'
 
@@ -99,6 +99,7 @@ export async function GET(req: Request) {
       estimated_cost: cost,
       cache_savings: eff.savedUSD ?? 0,
       cache_hit_rate: eff.hitRate ?? 0,
+      ...(hasKnownPricing(model) ? {} : { priced_as: pricedAs(model) }),
     }
   }).sort((a, b) => b.estimated_cost - a.estimated_cost)
 

@@ -8,6 +8,7 @@ import { CostByProjectChart } from '@/components/costs/cost-by-project-chart'
 import { ModelTokenTable } from '@/components/costs/model-token-table'
 import { CacheEfficiencyPanel } from '@/components/costs/cache-efficiency-panel'
 import { BudgetAlertBanner } from '@/components/costs/budget-alert-banner'
+import { UnpricedModelsAlert } from '@/components/costs/unpriced-models-alert'
 import { formatCost } from '@/lib/decode'
 import { PRICING } from '@/lib/pricing'
 import type { CostAnalytics } from '@/types/claude'
@@ -51,6 +52,8 @@ export default function CostsPage() {
 
         {data && (
           <>
+            <UnpricedModelsAlert models={data.models} />
+
             {/* Hero stat cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Card>

@@ -48,9 +48,10 @@ CLAUDE_CONFIG_DIR=~/.claude-work npx cc-lens
 One `{timestamp, type, payload}` record per line. `cc-lens` uses:
 
 - `session_meta`: id, cwd, CLI version, git branch. Rollouts written without it (before Sept 2025) are skipped.
-- `turn_context`: the model for the responses that follow, and `model_context_window` for the Context tab.
+- `turn_context`: the model for the responses that follow.
 - `response_item`: user messages, tool calls (`function_call`, `custom_tool_call`, `web_search_call`), tool outputs and reasoning.
-- `event_msg` of type `token_count`: `info.last_token_usage` is one response's usage; repeats of the same running total are skipped. `rate_limits.primary` at 100% counts as a limit hit.
+- `event_msg` of type `token_count`: `info.last_token_usage` is one response's usage; repeats of the same running total are skipped. `info.model_context_window` sizes the Context tab. `rate_limits.primary` at 100% counts as a limit hit.
+- `event_msg` of types `task_started` and `task_complete`: the duration of a user turn, in the replay.
 
 ## Supported Copilot CLI Data
 

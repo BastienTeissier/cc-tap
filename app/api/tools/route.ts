@@ -64,7 +64,6 @@ export async function GET(req: Request) {
     })
     .sort((a, b) => b.total_calls - a.total_calls)
 
-
   const totalToolCalls = tools.reduce((s, t) => s + t.total_calls, 0)
 
   // ── MCP server summaries ───────────────────────────────────────────────────

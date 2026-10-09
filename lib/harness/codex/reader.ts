@@ -93,7 +93,9 @@ export function isErrorOutput(text: string): boolean {
   } catch { /* plain text */ }
   const exit = EXIT_CODE.exec(text) ?? PROCESS_EXIT.exec(text)
   if (exit) return exit[1] !== '0'
-  return FAILURES.some(f => text.includes(f))
+  // Codex starts its own failure reports with these; anywhere else they are just output
+  const start = text.trimStart()
+  return FAILURES.some(f => start.startsWith(f))
 }
 
 /** Compaction markers; none observed in local data yet (unverified names) */

@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { codexAdapter } from '@/lib/harness/codex/adapter'
-import { parseCodexSession } from '@/lib/harness/codex/reader'
+import { isErrorOutput, parseCodexSession } from '@/lib/harness/codex/reader'
 import { pathToSlug } from '@/lib/decode'
 import type { SessionFileEntry, SessionRecord } from '@/lib/harness/types'
 
@@ -127,5 +127,22 @@ describe('codex reader edge cases', () => {
     expect(record.ledger.ts).toHaveLength(0)
     expect(record.rate_limit_hits).toEqual([])
     expect(record.session.last_activity).toBe('2026-10-01T10:00:00.000Z')
+  })
+})
+
+describe('isErrorOutput', () => {
+  it('reads the exit code of a JSON output', () => {
+    expect(isErrorOutput(JSON.stringify({ output: 'boom', metadata: { exit_code: 2, duration_seconds: 0.1 } }))).toBe(true)
+    expect(isErrorOutput(JSON.stringify({ output: 'ok', metadata: { exit_code: 0, duration_seconds: 0.1 } }))).toBe(false)
+  })
+
+  it('reads the exit code of a streamed command', () => {
+    expect(isErrorOutput('Chunk ID: 1\nProcess exited with code 1\nOutput:\nfail')).toBe(true)
+  })
+
+  it('flags a failure Codex reports, not the same words inside an output', () => {
+    expect(isErrorOutput('apply_patch verification failed: no such file')).toBe(true)
+    expect(isErrorOutput('failed in sandbox: permission denied')).toBe(true)
+    expect(isErrorOutput('log line: patch rejected by reviewer')).toBe(false)
   })
 })

@@ -97,7 +97,7 @@ describe('codex reader', () => {
   })
 
   it('skips a malformed line', () => {
-    expect(a.session.last_activity).toBe('2026-10-01T10:00:19.000Z')
+    expect(a.session.last_activity).toBe('2026-10-01T10:00:19.500Z')
   })
 })
 

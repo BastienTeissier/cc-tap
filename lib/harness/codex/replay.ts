@@ -36,7 +36,8 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
   let contextWindow: number | undefined
   let model: string | undefined
   let totalCost = 0
-  let pending: { timestamp: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[] } | null = null
+  let pending: { timestamp: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[]; durationMs?: number } | null = null
+  let taskStartedAt: number | undefined
   // Outputs written before their response's token_count, pushed once it closes the response
   let pendingResults: NonNullable<ReplayTurn['tool_results']> = []
 
@@ -64,6 +65,7 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
       has_thinking: pending?.hasThinking || undefined,
       thinking_text: pending?.thinking.join('\n\n') || undefined,
       estimated_cost: cost,
+      turn_duration_ms: pending?.durationMs,
     })
     pending = null
     if (pendingResults.length) {
@@ -87,6 +89,17 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
       if (typeof p?.git?.branch === 'string' && p.git.branch) gitBranch = p.git.branch
     } else if (line.type === 'turn_context') {
       if (typeof p?.model === 'string') model = p.model
+    } else if (line.type === 'event_msg' && p?.type === 'task_started') {
+      taskStartedAt = typeof p.started_at === 'number' ? p.started_at : undefined
+    } else if (line.type === 'event_msg' && p?.type === 'task_complete') {
+      // Like Claude's turn_duration: the user turn's duration, on its last assistant turn
+      if (taskStartedAt !== undefined && typeof p.completed_at === 'number') {
+        const durationMs = (p.completed_at - taskStartedAt) * 1000
+        const last = turns.findLast(t => t.type === 'assistant')
+        if (pending) pending.durationMs = durationMs
+        else if (last) last.turn_duration_ms = durationMs
+      }
+      taskStartedAt = undefined
     } else if (line.type === 'event_msg' && p?.type === 'token_count') {
       if (typeof p.info?.model_context_window === 'number') contextWindow = p.info.model_context_window
       const usage = newTokenUsage(p, seen)

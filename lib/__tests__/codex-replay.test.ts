@@ -36,6 +36,11 @@ describe('codex replay', () => {
     expect(last.usage).toBeUndefined()
   })
 
+  it('times the user turn from task_started to task_complete, on its last assistant turn', () => {
+    expect(replay.turns.at(-1)!.turn_duration_ms).toBe(16_000)
+    expect(replay.turns.filter(t => t.turn_duration_ms !== undefined)).toHaveLength(1)
+  })
+
   it('takes the context window from the token count', () => {
     expect(replay.context_window).toBe(400000)
     expect(replay.version).toBe('0.9.0')

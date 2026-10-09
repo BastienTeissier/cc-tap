@@ -5,7 +5,7 @@ import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import { estimateCostFromUsage } from '@/lib/pricing'
 import type { ReplayData } from '@/types/claude'
-import { COPILOT_A as A, makeCopilotHome } from './helpers/copilot-home'
+import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, type CopilotRow } from './helpers/copilot-home'
 
 let saved: string | undefined
 let root: string
@@ -39,5 +39,44 @@ describe('copilot replay', () => {
     expect(first.tool_calls?.[2]).toMatchObject({ result: '1 test failed', is_error: true })
     expect(results.tool_results?.map(r => r.is_error)).toEqual([false, false, true])
     expect(replay.total_cost).toBeCloseTo(estimateCostFromUsage('gpt-5.5', first.usage!) + estimateCostFromUsage('gpt-5.5', second.usage!))
+  })
+})
+
+const C = '33333333-0000-4000-8000-00000000000c'
+const event = (type: string, second: number, data: Record<string, unknown> = {}) =>
+  JSON.stringify({ type, data, id: `e${second}`, timestamp: `2026-10-03T10:00:${String(second).padStart(2, '0')}.000Z`, parentId: null })
+const row = (output: number, second: number): CopilotRow => ({
+  session_id: C, model: 'gpt-5.5', input: 100, output, cacheRead: 0, cacheWrite: 0, reasoning: 0, nanoAiu: 1e9, at: `2026-10-03T10:00:${second}.000Z`,
+})
+
+/** Session C's replay, built from `events` and its `rows` */
+async function replayOf(events: string[], rows: CopilotRow[]): Promise<ReplayData> {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
+  try {
+    await makeCopilotHome(home, [...COPILOT_ROWS, ...rows])
+    const dir = path.join(home, 'session-state', C)
+    await fs.mkdir(dir)
+    await fs.writeFile(path.join(dir, 'events.jsonl'), events.join('\n') + '\n')
+    process.env.COPILOT_HOME = home
+    const entry = (await copilotAdapter.listSessionFiles()).find(e => e.session_id === C)!
+    return await copilotAdapter.parseReplay(entry)
+  } finally {
+    process.env.COPILOT_HOME = root
+    await fs.rm(home, { recursive: true, force: true })
+  }
+}
+
+describe('copilot replay edge cases', () => {
+  it('gives no usage row to a message outside a turn span', async () => {
+    const replay = await replayOf([
+      event('session.start', 0, { sessionId: C }),
+      event('user.message', 1, { content: 'Go' }),
+      event('assistant.message', 2, { model: 'gpt-5.5', content: 'Preamble' }),
+      event('assistant.turn_start', 3),
+      event('assistant.message', 4, { model: 'gpt-5.5', content: 'Answer' }),
+      event('assistant.turn_end', 5),
+    ], [row(42, 4)])
+    const assistant = replay.turns.filter(t => t.type === 'assistant')
+    expect(assistant.map(t => [t.text, t.usage?.output_tokens])).toEqual([['Preamble', undefined], ['Answer', 42]])
   })
 })

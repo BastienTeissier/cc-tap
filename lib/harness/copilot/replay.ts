@@ -28,7 +28,8 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
   let totalCost = 0
   let turnCount = 0
   let rows: CopilotUsageRow[] | null = null
-  let pending: { timestamp: string; model?: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[] } | null = null
+  // `spanned`: opened by assistant.turn_start, so it owns the next usage row
+  let pending: { timestamp: string; spanned: boolean; model?: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[] } | null = null
   let results: NonNullable<ReplayTurn['tool_results']> = []
 
   const push = (turn: Omit<ReplayTurn, 'uuid' | 'parentUuid'>) => {
@@ -38,7 +39,7 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
   const flush = (endTs?: string) => {
     if (!pending) return
     rows ??= mainRowsByTurn(usageFor(id) ?? [])
-    const row = rows[turnCount++]
+    const row = pending.spanned ? rows[turnCount++] : undefined
     let usage: TurnUsage | undefined
     if (row) {
       const t = rowTokens(row)
@@ -88,10 +89,11 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
       }
       case 'assistant.turn_start':
         flush()
-        pending = { timestamp: ts, model, text: [], thinking: [], hasThinking: false, calls: [] }
+        pending = { timestamp: ts, spanned: true, model, text: [], thinking: [], hasThinking: false, calls: [] }
         break
       case 'assistant.message': {
-        pending ??= { timestamp: ts, model, text: [], thinking: [], hasThinking: false, calls: [] }
+        // A message outside a turn span: shown, but no billed call of its own
+        pending ??= { timestamp: ts, spanned: false, model, text: [], thinking: [], hasThinking: false, calls: [] }
         if (typeof d?.model === 'string') pending.model = d.model
         if (typeof d?.content === 'string' && d.content) pending.text.push(d.content)
         if (typeof d?.reasoningText === 'string' && d.reasoningText) pending.thinking.push(d.reasoningText)

@@ -113,8 +113,8 @@ describe('aggregate routes', () => {
     const projects = await import('@/app/api/projects/route')
     jsonl.readJSONLLines.mockClear()
 
-    await tools.GET()
-    await projects.GET()
+    await tools.GET(new Request('http://localhost/api/tools'))
+    await projects.GET(new Request('http://localhost/api/projects'))
     expect(jsonl.readJSONLLines).not.toHaveBeenCalled()
   })
 })
@@ -122,7 +122,7 @@ describe('aggregate routes', () => {
 describe('GET /api/tools', () => {
   it('builds versions and branches from the parsed sessions', async () => {
     const { GET } = await import('@/app/api/tools/route')
-    const body = await (await GET()).json()
+    const body = await (await GET(new Request('http://localhost/'))).json()
 
     expect(body.versions.map((v: { version: string }) => v.version).sort()).toEqual(['2.1.50', '2.1.62'])
     expect(body.versions.find((v: { version: string }) => v.version === '2.1.62')).toMatchObject({
@@ -135,7 +135,7 @@ describe('GET /api/tools', () => {
 describe('GET /api/projects', () => {
   it('lists the branches its sessions recorded', async () => {
     const { GET } = await import('@/app/api/projects/route')
-    const body = await (await GET()).json()
+    const body = await (await GET(new Request('http://localhost/'))).json()
 
     expect(body.projects).toHaveLength(1)
     expect(body.projects[0].branches.sort()).toEqual(['feat', 'main'])

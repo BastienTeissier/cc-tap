@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server'
-import { getAllSessionRecords, listProjectSlugs, resolveProjectPath } from '@/lib/claude-reader'
+import { getAllSessionRecords } from '@/lib/harness/session-store'
+import { listProjectSlugs, resolveProjectPath } from '@/lib/harness/claude/reader'
+import { harnessesFromSearch, matchesHarness } from '@/lib/harness-filter'
 import { sessionCost } from '@/lib/pricing'
-import { projectDisplayName } from '@/lib/decode'
+import { pathToSlug, projectDisplayName } from '@/lib/decode'
 import type { ProjectSummary } from '@/types/claude'
 import type { SessionRecord } from '@/lib/harness/types'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
-  const [records, slugDirs] = await Promise.all([getAllSessionRecords(), listProjectSlugs()])
+export async function GET(req: Request) {
+  const hf = harnessesFromSearch(new URL(req.url).search)
+  const [all, slugDirs] = await Promise.all([getAllSessionRecords(), listProjectSlugs()])
+  const records = all.filter(r => matchesHarness(r.session, hf))
 
-  // Build path→slug lookup from actual project directories
+  // Claude's project dirs name the slug of their recovered cwd; every other project
+  // (any harness) gets pathToSlug(cwd), so one repo is one card across harnesses
   const pathToSlugMap = new Map<string, string>()
   await Promise.all(
     slugDirs.map(async (slug) => {
@@ -33,7 +38,7 @@ export async function GET() {
   const projects: ProjectSummary[] = []
 
   for (const [projectPath, sessionList] of byPath.entries()) {
-    const slug = pathToSlugMap.get(projectPath) ?? projectPath.replace(/\//g, '-')
+    const slug = pathToSlugMap.get(projectPath) ?? pathToSlug(projectPath)
 
     const totalMessages = sessionList.reduce(
       (s, m) => s + (m.user_message_count ?? 0) + (m.assistant_message_count ?? 0), 0
@@ -65,6 +70,14 @@ export async function GET() {
       }
     }
 
+    const byHarness: ProjectSummary['by_harness'] = {}
+    for (const s of sessionList) {
+      const h = byHarness[s.harness] ?? { sessions: 0, estimated_cost: 0 }
+      h.sessions += 1
+      h.estimated_cost += sessionCost(s)
+      byHarness[s.harness] = h
+    }
+
     const sortedDates = sessionList.map(s => s.start_time).sort()
 
     projects.push({
@@ -89,6 +102,7 @@ export async function GET() {
       uses_mcp: sessionList.some(s => s.uses_mcp),
       uses_task_agent: sessionList.some(s => s.uses_task_agent),
       branches: [...(branchesByPath.get(projectPath) ?? [])].slice(0, 10),
+      by_harness: byHarness,
     })
   }
 

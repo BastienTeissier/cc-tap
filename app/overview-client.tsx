@@ -253,11 +253,16 @@ export function OverviewClient() {
           uses_mcp: false,
           uses_task_agent: false,
           branches: [],
+          by_harness: {},
         } satisfies ProjectSummary
         existing.session_count += 1
         existing.total_messages += (session.user_message_count ?? 0) + (session.assistant_message_count ?? 0)
         existing.total_duration_minutes += session.duration_minutes ?? 0
         existing.estimated_cost += sessionCost(session)
+        const byHarness = existing.by_harness[session.harness] ?? { sessions: 0, estimated_cost: 0 }
+        byHarness.sessions += 1
+        byHarness.estimated_cost += sessionCost(session)
+        existing.by_harness[session.harness] = byHarness
         existing.input_tokens += session.input_tokens ?? 0
         existing.output_tokens += session.output_tokens ?? 0
         existing.uses_mcp = existing.uses_mcp || session.uses_mcp

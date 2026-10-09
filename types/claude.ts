@@ -305,6 +305,7 @@ export interface ProjectSummary {
   uses_mcp: boolean
   uses_task_agent: boolean
   branches: string[]
+  by_harness: Partial<Record<Harness, { sessions: number; estimated_cost: number }>>
 }
 
 // ─── Project Trends ──────────────────────────────────────────────────────────
@@ -344,6 +345,7 @@ export interface ProjectTrend {
 // ─── Tool Analytics ───────────────────────────────────────────────────────────
 
 export interface ToolSummary {
+  harness: Harness
   name: string
   category: string
   total_calls: number
@@ -359,6 +361,7 @@ export interface McpServerSummary {
 }
 
 export interface VersionRecord {
+  harness: Harness
   version: string
   session_count: number
   first_seen: string
@@ -390,12 +393,16 @@ export interface ModelCostBreakdown {
   /** Set when the pricing table has no entry for this model's release: the
    *  entry whose rates were used instead, so the cost is an estimate */
   priced_as?: string
+  /** One row per (harness, model): the same model id under two harnesses is two rows */
+  harness: Harness
 }
 
 export interface DailyCost {
   date: string
   costs: Record<string, number>
   total: number
+  /** The day's cost per harness; sums to total */
+  by_harness: Partial<Record<Harness, number>>
 }
 
 export interface ProjectCost {
@@ -415,6 +422,10 @@ export interface CostAnalytics {
   models: ModelCostBreakdown[]
   daily: DailyCost[]
   by_project: ProjectCost[]
+  /** Harnesses with at least one session in range */
+  harnesses: Harness[]
+  /** Copilot premium requests in range, when any Copilot session reported them */
+  copilot_premium_requests?: number
 }
 
 // ─── History ──────────────────────────────────────────────────────────────────

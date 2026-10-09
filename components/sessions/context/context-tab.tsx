@@ -119,7 +119,7 @@ export function ContextTab({ sessionId, replay, timeline, window: win, onWindowC
         key: id,
         label: agentById.get(id)?.description ?? id.slice(0, 8),
         color: FILTER_COLORS[i % FILTER_COLORS.length],
-        points: pointsInWindow(buildContextSeries(data.turns, limits), win?.from, win?.to),
+        points: pointsInWindow(buildContextSeries(data.turns, limits, data.context_window), win?.from, win?.to),
       })
     })
     return out

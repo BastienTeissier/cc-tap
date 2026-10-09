@@ -5,7 +5,6 @@ import { findSessionEntry } from '@/lib/harness/session-store'
 
 export * from '@/lib/harness/claude/reader'
 export { getAllSessionRecords, getAllParsedSessions, getSessions } from '@/lib/harness/session-store'
-export { getAllParsedSessions as readSessionsFromProjectJSONL } from '@/lib/harness/session-store'
 
 /** The transcript path of a Claude session */
 export async function findSessionJSONL(sessionId: string): Promise<string | null> {

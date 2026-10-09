@@ -165,7 +165,7 @@ export type Vendor = 'anthropic' | 'openai' | 'unknown'
 /** Who makes a model, from its id */
 export function vendorOf(model: string): Vendor {
   if (model.startsWith('claude-')) return 'anthropic'
-  if (/^(gpt-|o\d|codex)/.test(model)) return 'openai'
+  if (/^(gpt-|o[134](-|$)|codex)/.test(model)) return 'openai'
   return 'unknown'
 }
 

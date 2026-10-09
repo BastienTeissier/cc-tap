@@ -210,8 +210,8 @@ describe('OpenAI models', () => {
 
   it('tells the vendor from the model id', () => {
     expect(vendorOf('claude-opus-5-5')).toBe('anthropic')
-    for (const m of ['gpt-5.5', 'gpt-5.3-codex', 'o3', 'gpt-5.6-terra']) expect(vendorOf(m)).toBe('openai')
-    expect(vendorOf('llama-x')).toBe('unknown')
+    for (const m of ['gpt-5.5', 'gpt-5.3-codex', 'o3', 'o4-mini', 'codex-mini-latest', 'gpt-5.6-terra']) expect(vendorOf(m)).toBe('openai')
+    for (const m of ['llama-x', 'o9', 'o3x']) expect(vendorOf(m)).toBe('unknown')
   })
 
   it('prices an unknown GPT at the OpenAI fallback, never at Claude rates', () => {

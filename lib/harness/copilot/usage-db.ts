@@ -47,6 +47,15 @@ function getDb(): DatabaseSync | null {
   }
 }
 
+let warned = false
+
+/** Sessions then show no tokens: say why once, not once per session */
+function warnOnce(err: unknown) {
+  if (warned) return
+  warned = true
+  console.warn('[cc-tap] could not read Copilot usage from session-store.db:', err)
+}
+
 /** The session's billed calls, oldest first; null when the DB is absent or unreadable */
 export function usageFor(sessionId: string): CopilotUsageRow[] | null {
   const db = getDb()
@@ -54,8 +63,9 @@ export function usageFor(sessionId: string): CopilotUsageRow[] | null {
   try {
     return db.prepare(`SELECT ${COLUMNS} FROM assistant_usage_events WHERE session_id = ? ORDER BY created_at, id`)
       .all(sessionId) as unknown as CopilotUsageRow[]
-  } catch {
-    return null // locked, or an older schema
+  } catch (err) {
+    warnOnce(err)
+    return null // locked, or another schema
   }
 }
 
@@ -72,6 +82,8 @@ export function lastUsageMs(): Map<string, number> {
       const at = Date.parse(r.at)
       if (Number.isFinite(at)) last.set(r.session_id, at)
     }
-  } catch { /* locked, or an older schema */ }
+  } catch (err) {
+    warnOnce(err) // locked, or another schema
+  }
   return last
 }

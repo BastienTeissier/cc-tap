@@ -62,6 +62,20 @@ function sessionModelUsage(session: SessionMeta): Record<string, ModelUsage> {
   return { [FALLBACK_MODEL]: { ...usage, costUSD: estimateTotalCostFromModel(FALLBACK_MODEL, usage) } }
 }
 
+/** Adds a session's usage to rows keyed by rowKey(harness, model), skipping synthetic and empty models */
+function addSessionUsage(rows: Record<string, ModelUsage>, session: SessionMeta) {
+  for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
+    const tokenTotal =
+      (usage.inputTokens ?? 0) +
+      (usage.outputTokens ?? 0) +
+      (usage.cacheReadInputTokens ?? 0) +
+      (usage.cacheCreationInputTokens ?? 0)
+    if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
+    const key = rowKey(session.harness, model)
+    addUsage(rows[key] ??= emptyUsage(), usage)
+  }
+}
+
 export async function GET(req: Request) {
   const range = parseRange(new URL(req.url).searchParams.get('range'))
   const cutoff = rangeCutoff(range)
@@ -83,18 +97,7 @@ export async function GET(req: Request) {
     }
   }
   for (const session of filteredSessions) {
-    for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
-      const tokenTotal =
-        (usage.inputTokens ?? 0) +
-        (usage.outputTokens ?? 0) +
-        (usage.cacheReadInputTokens ?? 0) +
-        (usage.cacheCreationInputTokens ?? 0)
-      if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
-      const key = rowKey(session.harness, model)
-      const existing = modelUsage[key] ?? emptyUsage()
-      addUsage(existing, usage)
-      modelUsage[key] = existing
-    }
+    addSessionUsage(modelUsage, session)
   }
 
   // ── Per-model breakdown ────────────────────────────────────────────────────
@@ -127,18 +130,7 @@ export async function GET(req: Request) {
     const date = session.start_time.slice(0, 10)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
     const day = dailyUsage.get(date) ?? {}
-    for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
-      const tokenTotal =
-        (usage.inputTokens ?? 0) +
-        (usage.outputTokens ?? 0) +
-        (usage.cacheReadInputTokens ?? 0) +
-        (usage.cacheCreationInputTokens ?? 0)
-      if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
-      const key = rowKey(session.harness, model)
-      const existing = day[key] ?? emptyUsage()
-      addUsage(existing, usage)
-      day[key] = existing
-    }
+    addSessionUsage(day, session)
     dailyUsage.set(date, day)
   }
 

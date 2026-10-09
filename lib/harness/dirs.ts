@@ -14,11 +14,6 @@ export function harnessDir(h: Harness): string {
   return process.env[DIRS[h].env] ?? path.join(os.homedir(), DIRS[h].fallback)
 }
 
-/** The env var that overrides a harness's dir */
-export function harnessDirEnv(h: Harness): string {
-  return DIRS[h].env
-}
-
 /** harnessDir when it exists on disk, else null */
 export function existingHarnessDir(h: Harness): string | null {
   const dir = harnessDir(h)

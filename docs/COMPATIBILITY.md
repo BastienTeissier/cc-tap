@@ -56,7 +56,7 @@ One `{timestamp, type, payload}` record per line. `cc-lens` uses:
 ## Supported Copilot CLI Data
 
 - `~/.copilot/session-state/<id>/events.jsonl`: one event per line. `cc-lens` uses `session.start`, `session.model_change`, `user.message`, `assistant.turn_start`, `assistant.message`, `assistant.turn_end`, `tool.execution_start`, `tool.execution_complete` and `session.usage_checkpoint`.
-- `~/.copilot/session-state/<id>/workspace.yaml`: cwd and branch.
+- `~/.copilot/session-state/<id>/workspace.yaml`: cwd, branch, and `name` as the session title.
 - `~/.copilot/session-store.db`, table `assistant_usage_events` (schema v8), opened read-only. One row per billed call, with its tokens, model, sub-agent and AI units. `turn_index` is always 0, so the nth main-agent row is joined to the nth `assistant.turn_start`.
 
 Without the database, sessions still list from their events, without tokens; their cost comes from the last usage checkpoint.

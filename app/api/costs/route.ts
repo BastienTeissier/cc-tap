@@ -194,6 +194,7 @@ export async function GET(req: Request) {
     daily,
     by_project,
     harnesses: [...new Set(filteredSessions.map(s => s.harness))],
+    ...(filteredSessions.some(s => s.copilot) ? { copilot_premium_requests: filteredSessions.reduce((n, s) => n + (s.copilot?.premium_requests ?? 0), 0) } : {}),
   }
   return NextResponse.json(result)
 }

@@ -38,3 +38,17 @@ describe('GET /api/projects/[slug] under a harness filter', () => {
     expect(body.sessions).toEqual([])
   })
 })
+
+describe('GET /api/costs Copilot premium requests', () => {
+  it('sums them only when a Copilot session reported them', async () => {
+    const { GET } = await import('@/app/api/costs/route')
+    records.value = [session('claude', 'c1', '/Users/me/proj')]
+    expect(await (await GET(new Request('http://localhost/api/costs?range=all'))).json()).not.toHaveProperty('copilot_premium_requests')
+
+    records.value = [
+      session('copilot', 'p1', '/Users/me/proj', { copilot: { aiu: 1, premium_requests: 3 } }),
+      session('copilot', 'p2', '/Users/me/proj', { copilot: { aiu: 1, premium_requests: 2 } }),
+    ]
+    expect((await (await GET(new Request('http://localhost/api/costs?range=all'))).json()).copilot_premium_requests).toBe(5)
+  })
+})

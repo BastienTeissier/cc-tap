@@ -32,10 +32,6 @@ function colorForModel(m: string): string {
   return '#7a8494'
 }
 
-function shortModel(m: string): string {
-  return modelLabel(m)
-}
-
 interface Props {
   daily: DailyCost[]
   window: Window
@@ -70,7 +66,7 @@ export function CostOverTimeChart({ daily, window, onWindowChange }: Props) {
     }
   }, [daily])
   const colorFor = (k: string) => (byHarness && isHarness(k) ? HARNESS_COLORS[k] : colorForModel(k))
-  const labelFor = (k: string) => (byHarness && isHarness(k) ? HARNESS_LABELS[k] : shortModel(k))
+  const labelFor = (k: string) => (byHarness && isHarness(k) ? HARNESS_LABELS[k] : modelLabel(k))
 
   return (
     <div>

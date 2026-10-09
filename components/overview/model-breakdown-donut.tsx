@@ -31,10 +31,6 @@ const MODEL_COLORS = [
   '#ec4899',
 ]
 
-function shortModelName(model: string): string {
-  return modelLabel(model)
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
@@ -52,7 +48,7 @@ export function ModelBreakdownDonut({ modelUsage }: Props) {
     .map(([key, usage]) => {
       const { harness, name: model } = splitHarnessRowKey(key)
       return {
-        name: harness === 'claude' ? shortModelName(model) : `${harness}: ${shortModelName(model)}`,
+        name: harness === 'claude' ? modelLabel(model) : `${harness}: ${modelLabel(model)}`,
         value: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0),
       }
     })

@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+import fs from 'fs/promises'
+import os from 'os'
 import path from 'path'
+import { parseCodexSession } from '@/lib/harness/codex/reader'
 import { parseCodexReplay } from '@/lib/harness/codex/replay'
 import type { ReplayData } from '@/types/claude'
 
@@ -54,5 +57,28 @@ describe('codex replay', () => {
     expect(response.tool_calls?.map(c => c.id)).toEqual(['call_9'])
     expect(response.usage?.output_tokens).toBe(50)
     expect(results.tool_results?.map(r => r.tool_use_id)).toEqual(['call_9'])
+  })
+})
+
+describe('codex compaction', () => {
+  it('records both compaction markers from the size of the context before them', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-codex-compact-'))
+    const file = path.join(dir, 'rollout.jsonl')
+    const usage = (input: number, total: number) => ({ input_tokens: input, cached_input_tokens: 0, output_tokens: 10, total_tokens: total })
+    const line = (s: number, type: string, payload: unknown) => JSON.stringify({ timestamp: `2026-10-01T10:00:0${s}.000Z`, type, payload })
+    await fs.writeFile(file, [
+      line(0, 'session_meta', { id: A, cwd: '/x' }),
+      line(1, 'event_msg', { type: 'token_count', info: { total_token_usage: usage(900, 910), last_token_usage: usage(900, 910) } }),
+      line(2, 'compacted', { message: 'summary' }),
+      line(3, 'event_msg', { type: 'token_count', info: { total_token_usage: usage(1200, 1220), last_token_usage: usage(300, 310) } }),
+      line(4, 'event_msg', { type: 'context_compacted' }),
+    ].join('\n'))
+    try {
+      expect((await parseCodexSession(file, A))!.session.has_compaction).toBe(true)
+      const { compactions } = await parseCodexReplay(file, A)
+      expect(compactions.map(c => [c.pre_tokens, c.turn_index])).toEqual([[900, 1], [300, 2]])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -38,6 +38,8 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
   let totalCost = 0
   let pending: { timestamp: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[]; durationMs?: number } | null = null
   let taskStartedAt: number | undefined
+  // Prompt size of the latest response: the context a compaction starts from
+  let contextTokens = 0
   // Outputs written before their response's token_count, pushed once it closes the response
   let pendingResults: NonNullable<ReplayTurn['tool_results']> = []
 
@@ -81,7 +83,7 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
     const ts = line.timestamp ?? ''
 
     if (isCompaction(line)) {
-      compactions.push({ uuid: `${id}-compaction-${compactions.length}`, timestamp: ts, trigger: 'auto', pre_tokens: Math.max(0, seen.total), turn_index: turns.length })
+      compactions.push({ uuid: `${id}-compaction-${compactions.length}`, timestamp: ts, trigger: 'auto', pre_tokens: contextTokens, turn_index: turns.length })
     }
     if (line.type === 'session_meta') {
       if (typeof p?.id === 'string') id = p.id
@@ -104,6 +106,7 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
       if (typeof p.info?.model_context_window === 'number') contextWindow = p.info.model_context_window
       const usage = newTokenUsage(p, seen)
       if (usage) {
+        contextTokens = usage.input_tokens ?? 0
         const t = turnTokens(usage)
         flush({ input_tokens: t.input, output_tokens: t.output, cache_read_input_tokens: t.cacheRead, cache_creation_input_tokens: t.cacheWrite })
       }

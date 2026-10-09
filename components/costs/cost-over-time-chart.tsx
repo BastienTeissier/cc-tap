@@ -33,7 +33,7 @@ function colorForModel(m: string): string {
 }
 
 function shortModel(m: string): string {
-  return modelLabel(m) ?? m
+  return modelLabel(m)
 }
 
 interface Props {

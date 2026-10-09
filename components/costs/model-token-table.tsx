@@ -4,7 +4,7 @@ import { HarnessBadge } from '@/components/ui/harness-badge'
 import type { ModelCostBreakdown } from '@/types/claude'
 
 function shortModel(m: string): string {
-  return modelShortId(m) ?? m
+  return modelShortId(m)
 }
 
 interface Props {

@@ -113,7 +113,7 @@ function AssistantTurnCardView({ turn, turnNumber, toolResults, match }: TurnCar
   const isThinkingOpen = thinkingOpen ?? inThinking
   const isExpanded = expanded ?? (match?.text ?? false)
 
-  const modelShort = (turn.model && modelLabel(turn.model)) ?? turn.model ?? 'Claude'
+  const modelShort = turn.model ? modelLabel(turn.model) : 'Claude'
 
   const textToShow = turn.text ?? ''
   const needsExpandToggle = textToShow.length > ASSISTANT_COLLAPSE_THRESHOLD

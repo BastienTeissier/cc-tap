@@ -318,7 +318,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 >
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
                   <span>
-                    No price for {unpriced.map(u => modelLabel(u.model) ?? u.model).join(', ')}: charged at{' '}
+                    No price for {unpriced.map(u => modelLabel(u.model)).join(', ')}: charged at{' '}
                     {[...new Set(unpriced.map(u => u.priced_as))].join(', ')} rates
                   </span>
                 </p>

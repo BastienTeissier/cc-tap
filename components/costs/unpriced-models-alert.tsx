@@ -23,7 +23,7 @@ export function UnpricedModelsAlert({ models }: Props) {
         <ul className="space-y-0.5">
           {unpriced.map(m => (
             <li key={m.model}>
-              {modelLabel(m.model) ?? m.model} (<code>{m.model}</code>) is charged at <code>{m.priced_as}</code> rates
+              {modelLabel(m.model)} (<code>{m.model}</code>) is charged at <code>{m.priced_as}</code> rates
               {m.priced_as === FALLBACK_MODEL ? ', the default for unknown models' : ''}.
             </li>
           ))}

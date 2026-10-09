@@ -32,11 +32,7 @@ const MODEL_COLORS = [
 ]
 
 function shortModelName(model: string): string {
-  const label = modelLabel(model)
-  if (label) return label
-  // Generic fallback
-  const parts = model.split('-')
-  return parts.slice(0, 3).join('-')
+  return modelLabel(model)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

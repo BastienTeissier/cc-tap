@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getSessions } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { FALLBACK_MODEL, estimateTotalCostFromModel, cacheEfficiency, hasKnownPricing, pricedAs, usageCost } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 import type { CostAnalytics, ModelCostBreakdown, DailyCost, ProjectCost, ModelUsage, SessionMeta } from '@/types/claude'
@@ -62,7 +63,7 @@ function sessionModelUsage(session: SessionMeta): Record<string, ModelUsage> {
 export async function GET(req: Request) {
   const range = parseRange(new URL(req.url).searchParams.get('range'))
   const cutoff = rangeCutoff(range)
-  const sessions = await getSessions()
+  const sessions = filterByHarness(await getSessions(), harnessesFromSearch(new URL(req.url).search))
 
   const filteredSessions = cutoff
     ? sessions.filter(s => s.start_time.slice(0, 10) >= cutoff)

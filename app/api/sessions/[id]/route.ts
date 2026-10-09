@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAllParsedSessions } from '@/lib/claude-reader'
+import { getAllParsedSessions } from '@/lib/harness/session-store'
 import { sessionCost, unpricedModels } from '@/lib/pricing'
 
 export const dynamic = 'force-dynamic'

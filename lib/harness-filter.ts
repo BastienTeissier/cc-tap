@@ -15,7 +15,12 @@ export function harnessesToSearch(search: string, hs: Harness[] | null): string 
   return s ? `?${s}` : ''
 }
 
+/** True when the item's harness is selected (null filter = everything) */
+export function matchesHarness(item: { harness: Harness }, hs: Harness[] | null): boolean {
+  return !hs || hs.includes(item.harness)
+}
+
 /** Items whose harness is selected (null filter = everything) */
 export function filterByHarness<T extends { harness: Harness }>(items: T[], hs: Harness[] | null): T[] {
-  return hs ? items.filter(i => hs.includes(i.harness)) : items
+  return hs ? items.filter(i => matchesHarness(i, hs)) : items
 }

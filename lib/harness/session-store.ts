@@ -35,7 +35,9 @@ function cachedParse(adapter: HarnessAdapter, entry: SessionFileEntry): Promise<
 async function listOrEmpty(adapter: HarnessAdapter): Promise<SessionFileEntry[]> {
   try {
     return await adapter.listSessionFiles()
-  } catch {
+  } catch (err) {
+    // One unreadable harness dir must not hide the others' sessions
+    console.warn(`[cc-tap] could not list ${adapter.harness} sessions:`, err)
     return []
   }
 }

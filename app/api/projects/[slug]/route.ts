@@ -15,7 +15,7 @@ export async function GET(
   const { slug } = await params
   const hf = harnessesFromSearch(new URL(req.url).search)
   const projectPath = await resolveProjectPath(slug)
-  const records = (await getAllSessionRecords()).filter(r => matchesHarness(r.session, hf))
+  const records = await getAllSessionRecords()
   // Any harness's session whose cwd encodes to this slug; Claude's recovered cwd covers
   // slugs whose path had characters the encoding loses
   let matched = records.filter(({ session: s }) =>
@@ -28,6 +28,9 @@ export async function GET(
       r.session.project_path?.endsWith('/' + lastSegment)
     )
   }
+  // Filtered only once the project is resolved: a project with no session of the selected
+  // harness is empty, not whichever other project shares its last segment
+  matched = matched.filter(r => matchesHarness(r.session, hf))
   const sessions = matched.map(r => r.session)
 
   const branchTurns = new Map<string, number>()

@@ -4,7 +4,9 @@ import { parseCodexReplay } from '@/lib/harness/codex/replay'
 import type { ReplayData } from '@/types/claude'
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
+const B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const FILE = path.join(__dirname, 'fixtures', 'codex', 'sessions', '2026', '10', '01', `rollout-2026-10-01T10-00-00-${A}.jsonl`)
+const ARCHIVED = path.join(__dirname, 'fixtures', 'codex', 'archived_sessions', `rollout-2026-09-20T08-00-00-${B}.jsonl`)
 
 let replay: ReplayData
 beforeAll(async () => { replay = await parseCodexReplay(FILE, A) })
@@ -38,5 +40,14 @@ describe('codex replay', () => {
     expect(replay.context_window).toBe(400000)
     expect(replay.version).toBe('0.9.0')
     expect(replay.git_branch).toBe('main')
+  })
+
+  it('keeps a response whole when a tool output comes before its token count', async () => {
+    const archived = await parseCodexReplay(ARCHIVED, B)
+    expect(archived.turns.map(t => t.type)).toEqual(['user', 'assistant', 'user', 'assistant'])
+    const [, response, results] = archived.turns
+    expect(response.tool_calls?.map(c => c.id)).toEqual(['call_9'])
+    expect(response.usage?.output_tokens).toBe(50)
+    expect(results.tool_results?.map(r => r.tool_use_id)).toEqual(['call_9'])
   })
 })

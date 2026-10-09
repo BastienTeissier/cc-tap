@@ -37,6 +37,8 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
   let model: string | undefined
   let totalCost = 0
   let pending: { timestamp: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[] } | null = null
+  // Outputs written before their response's token_count, pushed once it closes the response
+  let pendingResults: NonNullable<ReplayTurn['tool_results']> = []
 
   const push = (turn: Omit<ReplayTurn, 'uuid' | 'parentUuid'>) => {
     const uuid = `${id}-${turns.length}`
@@ -46,6 +48,12 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
     if (!pending && !usage) return
     const cost = usage && model ? estimateCostFromUsage(model, usage) : undefined
     if (cost) totalCost += cost
+    const last = turns.at(-1)
+    if (!pending && last?.type === 'assistant' && !last.usage) {
+      // A count closing a response already flushed (by a prompt): its usage goes on that turn
+      Object.assign(last, { usage, estimated_cost: cost })
+      return
+    }
     push({
       type: 'assistant',
       timestamp: pending?.timestamp ?? turns.at(-1)?.timestamp ?? '',
@@ -58,6 +66,10 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
       estimated_cost: cost,
     })
     pending = null
+    if (pendingResults.length) {
+      push({ type: 'user', timestamp: turns.at(-1)!.timestamp, tool_results: pendingResults })
+      pendingResults = []
+    }
   }
   const open = (timestamp: string) => (pending ??= { timestamp, text: [], thinking: [], hasThinking: false, calls: [] })
 
@@ -108,11 +120,9 @@ export async function parseCodexReplay(filePath: string, sessionId: string): Pro
         const result = { tool_use_id: p.call_id ?? '', content, is_error: isError }
         const last = turns.at(-1)
         // Outputs of one response share a single results turn
-        if (!pending && last?.type === 'user' && last.tool_results && !last.text) last.tool_results.push(result)
-        else {
-          flush()
-          push({ type: 'user', timestamp: ts, tool_results: [result] })
-        }
+        if (pending) pendingResults.push(result)
+        else if (last?.type === 'user' && last.tool_results && !last.text) last.tool_results.push(result)
+        else push({ type: 'user', timestamp: ts, tool_results: [result] })
       }
     }
   })

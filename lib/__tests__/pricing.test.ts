@@ -216,6 +216,14 @@ describe('OpenAI models', () => {
     expect(pricedAs('claude-sonnet-6')).toBe(FALLBACK_MODEL)
   })
 
+  it('flags an OpenAI id that borrows another entry as an estimate', () => {
+    const u = { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, webSearchRequests: 0 }
+    expect(unpricedModels({ 'gpt-4.1-nano': u, 'gpt-5.2-codex': u, 'gpt-5-2025-08-07': u, 'gpt-5.5': u })).toEqual([
+      { model: 'gpt-4.1-nano', priced_as: 'gpt-4.1' },
+      { model: 'gpt-5.2-codex', priced_as: 'gpt-5.2' },
+    ])
+  })
+
   it('leaves a model of an unknown vendor unpriced, at no cost', () => {
     const u = { inputTokens: MTOK, outputTokens: MTOK, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, webSearchRequests: 0 }
     expect(unpricedModels({ 'llama-x': u })).toEqual([{ model: 'llama-x', priced_as: '' }])

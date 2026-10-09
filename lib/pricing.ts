@@ -186,13 +186,21 @@ export function pricedAs(model: string): string {
     ?? FALLBACK_BY_VENDOR[vendor] ?? ''
 }
 
+// A dated OpenAI snapshot: gpt-5-2025-08-07
+const SNAPSHOT_DATE = /^\d{4}-\d{2}-\d{2}$/
+
 /** True when the table has an entry for this model's own release, so its
  *  cost is not an estimate. A prefix entry only counts when it names the
  *  same release: claude-opus-4-5-20251101 is claude-opus-4-5's, while
- *  claude-opus-5-5 merely borrows claude-opus-5's rates. */
+ *  claude-opus-5-5 merely borrows claude-opus-5's rates. Other vendors' ids
+ *  do not parse as releases, so only a dated snapshot counts: gpt-4.1-nano
+ *  and gpt-5.2-codex merely borrow gpt-4.1's and gpt-5.2's rates. */
 export function hasKnownPricing(model: string): boolean {
   const table = getPricingTable()
   if (table[model]) return true
+  if (vendorOf(model) !== 'anthropic') {
+    return cachedKeysLongestFirst.some(key => model.startsWith(`${key}-`) && SNAPSHOT_DATE.test(model.slice(key.length + 1)))
+  }
   const release = parseModel(model)
   return cachedKeysLongestFirst.some(key => {
     if (!matchesPricingKey(model, key)) return false

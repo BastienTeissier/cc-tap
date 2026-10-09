@@ -93,6 +93,8 @@ export interface SessionMeta {
   user_message_timestamps: string[]
   /** Per-model usage across the orchestrator and every sub-agent transcript */
   model_usage?: Record<string, ModelUsage>
+  /** Copilot CLI only: AI units spent and premium requests counted */
+  copilot?: { aiu: number; premium_requests: number }
   /** Per-model usage of the sub-agent / workflow transcripts alone, a subset of model_usage */
   agent_model_usage?: Record<string, ModelUsage>
   /** The cost Claude Code reported in the transcript, when it covers the whole session
@@ -478,8 +480,12 @@ export interface TeamExportPayload {
   exportedAt: string
   member: TeamMember
   redaction: RedactionLevel
-  /** Claude Code versions seen in this member's sessions */
+  /** CLI versions seen in this member's sessions, every harness mixed (kept for pre-1.1.0 readers) */
   cc_versions: string[]
+  /** Harnesses in this export; absent before 1.1.0, whose sessions are all Claude */
+  harnesses?: Harness[]
+  /** CLI versions per harness; absent before 1.1.0, whose cc_versions are all Claude */
+  versions_by_harness?: Partial<Record<Harness, string[]>>
   sessions: SessionMeta[]
 }
 
@@ -518,6 +524,8 @@ export interface TeamMemberSummary {
   last_active: string
   first_active: string
   cc_versions: string[]
+  /** Sessions per harness */
+  by_harness: Partial<Record<Harness, number>>
   top_projects: Array<{ name: string; sessions: number; cost: number }>
   models: Record<string, ModelUsage>
   adoption: TeamFeatureAdoption
@@ -544,8 +552,8 @@ export interface TeamAnalytics {
   total_cache_savings: number
   members: TeamMemberSummary[]
   daily: TeamDailyPoint[]
-  /** Claude Code version → members running it (version skew view) */
-  version_skew: Array<{ version: string; members: string[] }>
+  /** (harness, CLI version) → members running it (version skew view) */
+  version_skew: Array<{ harness: Harness; version: string; members: string[] }>
   models: Record<string, ModelUsage>
   /** Every MCP server seen in member tool counts, most-used first */
   mcp_servers: TeamMcpServer[]

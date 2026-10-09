@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getSessions } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { isHarness } from '@/types/harness'
 import type { ExportPayload, ImportDiff } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
@@ -14,7 +15,10 @@ export async function POST(req: Request) {
   const existing = await getSessions()
   const existingIds = new Set(existing.map(s => s.session_id))
 
-  const sessions_to_add = payload.sessions.filter(s => !existingIds.has(s.session_id))
+  // Exports before 1.1.0 hold Claude sessions only, without a harness field
+  const sessions_to_add = payload.sessions
+    .filter(s => !existingIds.has(s.session_id))
+    .map(s => ({ ...s, harness: isHarness(s.harness) ? s.harness : 'claude' as const }))
 
   const diff: ImportDiff = {
     total_in_export: payload.sessions.length,

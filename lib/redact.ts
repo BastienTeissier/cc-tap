@@ -56,6 +56,7 @@ export function redactSession(session: SessionMeta, level: RedactionLevel): Sess
     message_hours: session.message_hours,
     user_message_timestamps: [],
     model_usage: session.model_usage,
+    copilot: session.copilot,
   }
 }
 

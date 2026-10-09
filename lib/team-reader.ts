@@ -11,6 +11,8 @@ import type {
   ModelUsage,
 } from '@/types/claude'
 import { estimateTotalCostFromModel, estimateCostFromUsage, cacheEfficiency, sessionCost } from '@/lib/pricing'
+import { harnessRowKey, splitHarnessRowKey } from '@/lib/harness/row-key'
+import { isHarness, type Harness } from '@/types/harness'
 
 /**
  * Zero-infra team mode: every member drops a redacted .cclens-team.json into
@@ -34,6 +36,11 @@ function isTeamExport(obj: unknown): obj is TeamExportPayload {
   )
 }
 
+/** Exports before 1.1.0 carry Claude sessions only, without a harness field */
+function withHarness(e: TeamExportPayload): TeamExportPayload {
+  return { ...e, sessions: e.sessions.map(s => ({ ...s, harness: isHarness(s.harness) ? s.harness : 'claude' })) }
+}
+
 export async function readTeamExports(dir = teamDir()): Promise<{ exports: TeamExportPayload[]; errors: string[] }> {
   const exports: TeamExportPayload[] = []
   const errors: string[] = []
@@ -48,7 +55,7 @@ export async function readTeamExports(dir = teamDir()): Promise<{ exports: TeamE
       try {
         const raw = await fs.readFile(path.join(dir, f), 'utf-8')
         const json = JSON.parse(raw)
-        if (isTeamExport(json)) exports.push(json)
+        if (isTeamExport(json)) exports.push(withHarness(json))
         else errors.push(`${f}: not a cclens-team-export file`)
       } catch {
         errors.push(`${f}: unreadable or malformed JSON`)
@@ -107,6 +114,7 @@ export async function getTeamAnalytics(dir = teamDir()): Promise<TeamAnalytics> 
   const members: TeamMemberSummary[] = []
   const dailyMap = new Map<string, TeamDailyPoint>()
   const teamModels: Record<string, ModelUsage> = {}
+  // Keyed by harnessRowKey(harness, version)
   const versionMembers = new Map<string, Set<string>>()
   const mcpServers = new Map<string, { total_calls: number; members: Set<string> }>()
 
@@ -221,6 +229,10 @@ export async function getTeamAnalytics(dir = teamDir()): Promise<TeamAnalytics> 
       last_active: lastActive,
       first_active: firstActive,
       cc_versions: exp.cc_versions ?? [],
+      by_harness: sessions.reduce<Partial<Record<Harness, number>>>((acc, s) => {
+        acc[s.harness] = (acc[s.harness] ?? 0) + 1
+        return acc
+      }, {}),
       top_projects: Array.from(projectAgg.entries())
         .map(([name, v]) => ({ name, sessions: v.sessions, cost: v.cost }))
         .sort((a, b) => b.cost - a.cost)
@@ -236,10 +248,15 @@ export async function getTeamAnalytics(dir = teamDir()): Promise<TeamAnalytics> 
     totalCacheSavings += cacheSavings
     mergeModelUsage(teamModels, memberModels)
 
-    for (const v of exp.cc_versions ?? []) {
-      const set = versionMembers.get(v) ?? new Set<string>()
-      set.add(exp.member.name)
-      versionMembers.set(v, set)
+    const versionsByHarness = exp.versions_by_harness ?? { claude: exp.cc_versions ?? [] }
+    for (const [harness, versions] of Object.entries(versionsByHarness)) {
+      if (!isHarness(harness)) continue
+      for (const v of versions ?? []) {
+        const key = harnessRowKey(harness, v)
+        const set = versionMembers.get(key) ?? new Set<string>()
+        set.add(exp.member.name)
+        versionMembers.set(key, set)
+      }
     }
   }
 
@@ -256,8 +273,11 @@ export async function getTeamAnalytics(dir = teamDir()): Promise<TeamAnalytics> 
     members,
     daily: Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
     version_skew: Array.from(versionMembers.entries())
-      .map(([version, set]) => ({ version, members: Array.from(set).sort() }))
-      .sort((a, b) => b.version.localeCompare(a.version)),
+      .map(([key, set]) => {
+        const { harness, name: version } = splitHarnessRowKey(key)
+        return { harness, version, members: Array.from(set).sort() }
+      })
+      .sort((a, b) => a.harness.localeCompare(b.harness) || b.version.localeCompare(a.version)),
     models: teamModels,
     mcp_servers: Array.from(mcpServers.entries())
       .map(([server, v]) => ({ server, total_calls: v.total_calls, members: Array.from(v.members).sort() }))

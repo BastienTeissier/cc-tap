@@ -4,6 +4,7 @@ import path from 'path'
 import { teamDir } from '@/lib/team-reader'
 import { redactSessions } from '@/lib/redact'
 import type { TeamExportPayload, SessionMeta } from '@/types/claude'
+import { isHarness, type Harness } from '@/types/harness'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,20 @@ export const dynamic = 'force-dynamic'
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'member'
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === 'object' && !Array.isArray(x)
+}
+
+/** Known harnesses only, each with at most 50 string versions */
+function cleanVersionsByHarness(raw: Record<string, unknown>): Partial<Record<Harness, string[]>> {
+  const out: Partial<Record<Harness, string[]>> = {}
+  for (const [h, versions] of Object.entries(raw)) {
+    if (!isHarness(h) || !Array.isArray(versions)) continue
+    out[h] = versions.filter((v): v is string => typeof v === 'string').slice(0, 50)
+  }
+  return out
 }
 
 function isValidPayload(obj: unknown): obj is TeamExportPayload {
@@ -75,6 +90,8 @@ export async function POST(req: Request) {
     cc_versions: Array.isArray(body.cc_versions)
       ? body.cc_versions.filter((v): v is string => typeof v === 'string').slice(0, 50)
       : [],
+    ...(Array.isArray(body.harnesses) ? { harnesses: body.harnesses.filter(isHarness) } : {}),
+    ...(isRecord(body.versions_by_harness) ? { versions_by_harness: cleanVersionsByHarness(body.versions_by_harness) } : {}),
     sessions: redactSessions(body.sessions as SessionMeta[], redaction),
   }
 

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { readStatsCache, getSessions, readHistory } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { readStatsCache, readHistory } from '@/lib/harness/claude/reader'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import type { ExportPayload, SessionMeta } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
@@ -26,11 +28,12 @@ export async function GET(req: Request) {
   const to = url.searchParams.get('to') || undefined
   const dateRange = from || to ? { from, to } : undefined
 
-  const [stats, sessions, history] = await Promise.all([
+  const [stats, all, history] = await Promise.all([
     readStatsCache(),
     getSessions(),
     readHistory(10_000),
   ])
+  const sessions = filterByHarness(all, harnessesFromSearch(url.search))
 
   const filteredSessions = filterSessionsByDateRange(sessions, dateRange)
 
@@ -46,18 +49,20 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
   const { dateRange } = body as { dateRange?: { from?: string; to?: string } }
 
-  const [stats, sessions, history] = await Promise.all([
+  const [stats, all, history] = await Promise.all([
     readStatsCache(),
     getSessions(),
     readHistory(10_000),
   ])
+  const sessions = filterByHarness(all, harnessesFromSearch(new URL(req.url).search))
 
   const filteredSessions = filterSessionsByDateRange(sessions, dateRange)
 
   // facets stays in the payload (empty) so older importers keep working
   const payload: ExportPayload = {
     exportedAt: new Date().toISOString(),
-    version: '1.0.0',
+    // 1.1.0: sessions carry `harness`
+    version: '1.1.0',
     stats,
     sessions: filteredSessions,
     facets: [],

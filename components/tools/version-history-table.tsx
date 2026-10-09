@@ -1,4 +1,5 @@
 import { formatDate } from '@/lib/decode'
+import { HarnessBadge } from '@/components/ui/harness-badge'
 import type { VersionRecord } from '@/types/claude'
 
 interface Props {
@@ -18,8 +19,8 @@ export function VersionHistoryTable({ versions }: Props) {
         </thead>
         <tbody>
           {versions.map((v, i) => (
-            <tr key={v.version} className={`border-b border-border/30 hover:bg-muted/30 transition-colors ${i === 0 ? 'text-[#34d399]' : 'text-foreground/70'}`}>
-              <td className="py-2 font-bold">{v.version}</td>
+            <tr key={`${v.harness}:${v.version}`} className={`border-b border-border/30 hover:bg-muted/30 transition-colors ${i === 0 ? 'text-[#34d399]' : 'text-foreground/70'}`}>
+              <td className="py-2 font-bold"><HarnessBadge harness={v.harness} className="mr-2" />{v.version}</td>
               <td className="py-2 text-right">{v.session_count}</td>
               <td className="py-2 text-right text-muted-foreground">{v.first_seen ? formatDate(v.first_seen) : '—'}</td>
               <td className="py-2 text-right text-muted-foreground">{v.last_seen ? formatDate(v.last_seen) : '—'}</td>

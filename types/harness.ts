@@ -9,6 +9,14 @@ export const HARNESS_LABELS: Record<Harness, string> = {
   copilot: 'Copilot CLI',
 }
 
+/** GET /api/harnesses */
+export interface HarnessesResponse {
+  /** Harnesses with a reader whose dir exists */
+  detected: Harness[]
+  /** Each harness's dir when it exists on disk */
+  dirs: Record<Harness, string | null>
+}
+
 export function isHarness(x: unknown): x is Harness {
   return typeof x === 'string' && (HARNESSES as readonly string[]).includes(x)
 }

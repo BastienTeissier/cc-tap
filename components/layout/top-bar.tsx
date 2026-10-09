@@ -7,6 +7,7 @@ import { Search, RefreshCw, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/layout/sidebar-context'
 import { LiveCaptureButton } from '@/components/proxy/live-capture-button'
+import { HarnessFilter } from '@/components/layout/harness-filter'
 import { cn } from '@/lib/utils'
 
 interface TopBarProps {
@@ -103,6 +104,9 @@ export function TopBar({ title, subtitle, className }: TopBarProps) {
         >
           <Search className="w-4 h-4" />
         </Button>
+
+        {/* Harness filter (only with more than one harness) */}
+        <HarnessFilter />
 
         {/* Refresh */}
         <Button

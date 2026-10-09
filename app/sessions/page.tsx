@@ -7,6 +7,7 @@ import { TopBar } from '@/components/layout/top-bar'
 import { SessionTable } from '@/components/sessions/session-table'
 import { RangeFilter, FIVE_HOURS_MS, type RangeMode } from '@/components/sessions/range-filter'
 import { windowFromSearch, windowToSearch, type TimeWindow } from '@/lib/time-window'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import type { SessionsResponse } from '@/types/claude'
 
 const fetcher = (url: string) =>
@@ -34,8 +35,9 @@ function SessionsPageInner() {
     router.replace(`${pathname}?${p.toString()}`, { scroll: false })
   }, [search, pathname, router])
 
-  // Only from/to reach the API; the mode is a UI concern
-  const apiKey = `/api/sessions${windowToSearch('', window)}`
+  // Only from/to and h reach the API; the mode is a UI concern
+  const { apiQuery } = useHarnessFilter()
+  const apiKey = apiQuery(`/api/sessions${windowToSearch('', window)}`)
   const { data, error, isLoading } = useSWR<SessionsResponse>(apiKey, fetcher, {
     refreshInterval: 5_000,
     keepPreviousData: true,

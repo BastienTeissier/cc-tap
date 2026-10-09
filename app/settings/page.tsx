@@ -3,6 +3,8 @@
 import useSWR from 'swr'
 import Link from 'next/link'
 import { TopBar } from '@/components/layout/top-bar'
+import { HarnessBadge } from '@/components/ui/harness-badge'
+import { HARNESSES, HARNESS_LABELS, type HarnessesResponse } from '@/types/harness'
 
 const fetcher = (url: string) =>
   fetch(url).then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })
@@ -78,6 +80,7 @@ export default function SettingsPage() {
     settings: Record<string, unknown>
     storageBytes: number
   }>('/api/settings', fetcher, { refreshInterval: 30_000 })
+  const { data: harnesses } = useSWR<HarnessesResponse>('/api/harnesses', fetcher)
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -90,6 +93,19 @@ export default function SettingsPage() {
               <div key={i} className="h-32 bg-muted rounded animate-pulse" />
             ))}
           </div>
+        )}
+        {harnesses && (
+          <Section title="Harnesses">
+            <div className="space-y-2">
+              {HARNESSES.map(h => (
+                <div key={h} className="flex items-center gap-3 text-sm">
+                  <HarnessBadge harness={h} />
+                  <span className="w-28 text-foreground">{HARNESS_LABELS[h]}</span>
+                  <span className="font-mono text-muted-foreground">{harnesses.dirs[h] ?? 'not found'}</span>
+                </div>
+              ))}
+            </div>
+          </Section>
         )}
         {data && (
           <>

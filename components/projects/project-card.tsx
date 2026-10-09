@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { formatCost, formatDuration, formatRelativeDate } from '@/lib/decode'
 import { categoryColorMix, toolBarColor } from '@/lib/tool-categories'
 import type { ProjectSummary } from '@/types/claude'
+import type { Harness } from '@/types/harness'
+import { HarnessBadge } from '@/components/ui/harness-badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Clock, MessageSquare, GitBranch, Plug, Bot } from 'lucide-react'
@@ -57,6 +59,10 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 4)
 
+  // Chips only once a project is not Claude-only, so a Claude-only setup looks as before
+  const harnesses = Object.keys(project.by_harness ?? {}) as Harness[]
+  const showHarnesses = harnesses.some(h => h !== 'claude')
+
   return (
     <Link href={`/projects/${project.slug}`} className="block group">
       <Card className="h-full gap-0 py-0 hover:border-primary/40 transition-colors overflow-hidden">
@@ -78,6 +84,9 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
 
           {/* Language + feature badges */}
           <div className="flex flex-wrap gap-1.5">
+            {showHarnesses && harnesses.map(h => (
+              <HarnessBadge key={h} harness={h} className="text-[11px] py-0 h-5" />
+            ))}
             {topLangs.map(([lang]) => (
               <Badge key={lang} variant="outline" className={`text-[11px] px-1.5 py-0 h-5 ${langColor(lang)}`}>
                 {lang}

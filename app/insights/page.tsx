@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import { formatCost } from '@/lib/decode'
 import type { InsightsResponse } from '@/app/api/insights/route'
@@ -115,8 +116,9 @@ function BudgetCard({ budget, onSaved }: {
 }
 
 export default function InsightsPage() {
+  const { apiQuery } = useHarnessFilter()
   const [days, setDays] = useState(30)
-  const { data, error, isLoading, mutate } = useSWR<InsightsResponse>(`/api/insights?days=${days}`, fetcher)
+  const { data, error, isLoading, mutate } = useSWR<InsightsResponse>(apiQuery(`/api/insights?days=${days}`), fetcher)
 
   return (
     <div className="flex flex-col min-h-screen">

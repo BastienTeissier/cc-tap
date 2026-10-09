@@ -7,6 +7,7 @@ import { TopBar } from '@/components/layout/top-bar'
 import { SessionSidebar } from '@/components/sessions/replay/session-sidebar'
 import { TurnList } from '@/components/sessions/replay/turn-list'
 import { SessionBadges } from '@/components/sessions/session-badges'
+import { HarnessBadge } from '@/components/ui/harness-badge'
 import { formatCost, formatTokens, formatDuration, projectDisplayName } from '@/lib/decode'
 import { agentsCost as priceAgents } from '@/lib/pricing'
 import { modelLabel } from '@/lib/model-label'
@@ -46,7 +47,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const meta = metaData?.session
 
-  const { data: timeline } = useSWR<AgentTimeline>(`/api/sessions/${id}/agents`, fetcher, {
+  // Agents, workflows and the raw API stream exist only in Claude transcripts
+  const harness = replayData?.harness ?? meta?.harness
+  const isClaude = harness === 'claude'
+
+  const { data: timeline } = useSWR<AgentTimeline>(isClaude ? `/api/sessions/${id}/agents` : null, fetcher, {
     // Keep polling while an agent is still running
     refreshInterval: latest => (latest?.agents.some(a => a.outcome === 'running') || latest?.workflows?.some(w => w.status === 'running') ? 10_000 : 0),
   })
@@ -229,6 +234,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   // The turn list always shows the whole session; turns outside the window are dimmed.
   // A jump from the Agents tab can then land on any turn while the window stays selected.
   const allTurns = replayData.turns
+  // Claude's context view is rebuilt from the transcript; other harnesses need a reported window
+  const hasContext = isClaude || replayData.context_window != null
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -354,6 +361,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
         {meta && (
           <div className="mt-4 flex flex-wrap gap-2">
+            <HarnessBadge harness={meta.harness} />
             <SessionBadges
               has_compaction={replay.compactions.length > 0}
               uses_task_agent={meta.uses_task_agent}
@@ -375,22 +383,22 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               Replay
             </TabsTrigger>
             {/* Always present; the agents payload is the slowest fetch, so the badge shows a spinner until it lands */}
-            <TabsTrigger value="agents" className="gap-2">
+            {isClaude && <TabsTrigger value="agents" className="gap-2">
               <Bot className="h-4 w-4" />
               Agents
               {!timeline && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-label="Loading agents" />}
               {timeline && agentCount > 0 && (
                 <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">{agentCount}</span>
               )}
-            </TabsTrigger>
-            <TabsTrigger value="context" className="gap-2">
+            </TabsTrigger>}
+            {hasContext && <TabsTrigger value="context" className="gap-2">
               <Gauge className="h-4 w-4" />
               Context
-            </TabsTrigger>
-            <TabsTrigger value="raw" className="gap-2">
+            </TabsTrigger>}
+            {isClaude && <TabsTrigger value="raw" className="gap-2">
               <Radio className="h-4 w-4" />
               Raw API
-            </TabsTrigger>
+            </TabsTrigger>}
           </TabsList>
         </div>
 
@@ -450,7 +458,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </TabsContent>
 
         <TabsContent value="context" className="flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          {tab === 'context' && (
+          {tab === 'context' && hasContext && (
             <ContextTab
               sessionId={id}
               replay={replayData}
@@ -466,7 +474,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </TabsContent>
 
         <TabsContent value="raw" className="flex-1 overflow-y-auto data-[state=inactive]:hidden">
-          <RawApiTab sessionId={id} />
+          {isClaude && <RawApiTab sessionId={id} />}
         </TabsContent>
       </Tabs>
 

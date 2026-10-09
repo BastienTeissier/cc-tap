@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useMemo } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import type { ImportDiff } from '@/types/claude'
 import {
@@ -55,6 +56,7 @@ function previewUrl(dateFrom: string, dateTo: string) {
 }
 
 export default function ExportPage() {
+  const { apiQuery } = useHarnessFilter()
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
   const [exportRange, setExportRange] = useState<{ from?: Date; to?: Date }>({})
@@ -82,7 +84,7 @@ export default function ExportPage() {
         ? `${format(exportRange.from, 'MMM d, yyyy')} – …`
         : 'Pick date range (optional)'
   const { data: preview, error: previewError, isLoading: previewLoading } = useSWR<ExportPreview>(
-    swrKey,
+    apiQuery(swrKey),
     fetcher,
     { refreshInterval: 30_000, keepPreviousData: true }
   )
@@ -98,7 +100,7 @@ export default function ExportPage() {
         body.dateRange = { from: rangeFromStr || undefined, to: rangeToStr || undefined }
       }
 
-      const res = await fetch('/api/export', {
+      const res = await fetch(apiQuery('/api/export'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -139,7 +141,7 @@ export default function ExportPage() {
         body.dateRange = { from: rangeFromStr || undefined, to: rangeToStr || undefined }
       }
 
-      const res = await fetch('/api/export/team', {
+      const res = await fetch(apiQuery('/api/export/team'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

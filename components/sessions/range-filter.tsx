@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { format } from 'date-fns'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -50,10 +51,11 @@ const ClearButton = ({ onClick }: { onClick: () => void }) => (
  * start + 5h, the length of the subscription usage window.
  */
 export function RangeFilter({ window: w, mode, onChange }: Props) {
+  const { apiQuery } = useHarnessFilter()
   // Half-picked calendar range, before both days are known
   const [draft, setDraft] = useState<DateRange>({})
   const { data: windowsData } = useSWR<{ windows: UsageWindow[] }>(
-    mode === '5h' ? '/api/usage-windows' : null,
+    mode === '5h' ? apiQuery('/api/usage-windows') : null,
     fetcher,
     { refreshInterval: 60_000 },
   )

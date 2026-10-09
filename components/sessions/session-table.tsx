@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { SessionBadges } from './session-badges'
+import { HarnessBadge } from '@/components/ui/harness-badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatCost, formatDuration, formatDateTime, formatTokens, projectDisplayName } from '@/lib/decode'
 import { metricTokens, sessionMetrics } from '@/lib/session-ledger'
@@ -215,6 +216,7 @@ export function SessionTable({ sessions, range }: Props) {
               <tr className="border-b border-border bg-muted">
                 <th className="px-3 py-2 text-left"><SortHeader label="Date" k="start_time" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                 <th className="px-3 py-2 text-left"><span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground">Project</span></th>
+                <th className="px-3 py-2 text-left"><span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground">Harness</span></th>
                 <th className="px-3 py-2 text-right"><SortHeader label="Dur" k="duration_minutes" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                 <th className="px-3 py-2 text-right"><SortHeader label="Msgs" k="total_messages" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                 <th className="px-3 py-2 text-right"><SortHeader label="Tools" k="tool_calls" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
@@ -273,6 +275,9 @@ export function SessionTable({ sessions, range }: Props) {
                         </p>
                       )}
                     </td>
+                    <td className="px-3 py-2">
+                      <HarnessBadge harness={s.harness} />
+                    </td>
                     <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">
                       <SlicedValue value={formatDuration(m.shown.duration_minutes)} whole={m.whole && formatDuration(m.whole.duration_minutes)} />
                     </td>
@@ -303,7 +308,7 @@ export function SessionTable({ sessions, range }: Props) {
               })}
               {paginated.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground/50 text-[13px]">
+                  <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground/50 text-[13px]">
                     No sessions match filters
                   </td>
                 </tr>

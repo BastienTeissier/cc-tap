@@ -85,7 +85,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
           {/* Language + feature badges */}
           <div className="flex flex-wrap gap-1.5">
             {showHarnesses && harnesses.map(h => (
-              <HarnessBadge key={h} harness={h} className="text-[11px] py-0 h-5" />
+              <HarnessBadge key={h} harness={h} count={project.by_harness[h]?.sessions} className="text-[11px] py-0 h-5" />
             ))}
             {topLangs.map(([lang]) => (
               <Badge key={lang} variant="outline" className={`text-[11px] px-1.5 py-0 h-5 ${langColor(lang)}`}>

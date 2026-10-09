@@ -9,13 +9,14 @@ const COLORS: Record<Harness, string> = {
 }
 
 /** The CLI that recorded a session, as a small colored tag */
-export function HarnessBadge({ harness, className }: { harness: Harness; className?: string }) {
+export function HarnessBadge({ harness, count, className }: { harness: Harness; count?: number; className?: string }) {
   return (
     <span
       title={HARNESS_LABELS[harness]}
       className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium border whitespace-nowrap', COLORS[harness], className)}
     >
       {harness}
+      {count !== undefined && <span className="ml-1 tabular-nums opacity-70">{count}</span>}
     </span>
   )
 }

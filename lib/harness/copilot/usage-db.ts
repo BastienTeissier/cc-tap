@@ -40,6 +40,7 @@ function getDb(): DatabaseSync | null {
   // A readOnly open of a missing file throws: no DB means events-only sessions
   if (!fs.existsSync(file)) return null
   try {
+    opened?.db.close()
     opened = { path: file, db: new DatabaseSync(file, { readOnly: true }) }
     return opened.db
   } catch {

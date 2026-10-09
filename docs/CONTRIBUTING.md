@@ -34,7 +34,7 @@ npm run build
 - `components/`: shared UI and dashboard components
 - `lib/harness/`: one adapter per harness (`claude/`, `codex/`, `copilot/`) implementing `HarnessAdapter` (`lib/harness/types.ts`)
 - `lib/harness/session-store.ts`: lists and parses every harness's sessions, cached by file path and mtime
-- `lib/harness/claude/reader.ts`: Claude Code files beyond sessions (history, todos, plans, memory, settings)
+- `lib/harness/claude/reader.ts`: Claude session parsing plus the Claude-only readers (history, todos, plans, memory, settings, workspace)
 - `lib/replay-parser.ts`: Claude session JSONL replay parsing
 - `lib/session-ledger.ts`: per-turn token ledger, metrics and time windows
 - `lib/pricing.ts`: token and cost estimation

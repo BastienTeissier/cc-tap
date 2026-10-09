@@ -15,6 +15,7 @@ vi.mock('@/lib/jsonl', async (importOriginal) => {
 let tmpDir: string
 let previousClaudeConfigDir: string | undefined
 let previousCodexHome: string | undefined
+let previousCopilotHome: string | undefined
 let store: typeof import('@/lib/harness/session-store')
 let adapter: typeof import('@/lib/harness/claude/adapter')
 
@@ -45,6 +46,8 @@ beforeAll(async () => {
   // Keep a developer's real ~/.codex out of the store
   previousCodexHome = process.env.CODEX_HOME
   process.env.CODEX_HOME = path.join(tmpDir, 'no-codex')
+  previousCopilotHome = process.env.COPILOT_HOME
+  process.env.COPILOT_HOME = path.join(tmpDir, 'no-copilot')
   vi.resetModules()
   store = await import('@/lib/harness/session-store')
   adapter = await import('@/lib/harness/claude/adapter')
@@ -55,6 +58,8 @@ afterAll(async () => {
   else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir
   if (previousCodexHome === undefined) delete process.env.CODEX_HOME
   else process.env.CODEX_HOME = previousCodexHome
+  if (previousCopilotHome === undefined) delete process.env.COPILOT_HOME
+  else process.env.COPILOT_HOME = previousCopilotHome
   vi.resetModules()
   await fs.rm(tmpDir, { recursive: true, force: true })
 })

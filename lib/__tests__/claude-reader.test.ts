@@ -11,6 +11,7 @@ let tmpDir: string
 let reader: typeof import('@/lib/claude-reader')
 let previousClaudeConfigDir: string | undefined
 let previousCodexHome: string | undefined
+let previousCopilotHome: string | undefined
 
 const SESSION_ID = 'abc12345-0000-0000-0000-000000000000'
 /** Earlier session that spawned sub-agents; sorted after SESSION_ID */
@@ -104,6 +105,8 @@ beforeAll(async () => {
   // Keep a developer's real ~/.codex out of the store
   previousCodexHome = process.env.CODEX_HOME
   process.env.CODEX_HOME = path.join(tmpDir, 'no-codex')
+  previousCopilotHome = process.env.COPILOT_HOME
+  process.env.COPILOT_HOME = path.join(tmpDir, 'no-copilot')
   vi.resetModules()
   reader = await import('@/lib/claude-reader')
 })
@@ -113,6 +116,8 @@ afterAll(async () => {
   else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir
   if (previousCodexHome === undefined) delete process.env.CODEX_HOME
   else process.env.CODEX_HOME = previousCodexHome
+  if (previousCopilotHome === undefined) delete process.env.COPILOT_HOME
+  else process.env.COPILOT_HOME = previousCopilotHome
   vi.resetModules()
   await fs.rm(tmpDir, { recursive: true, force: true })
 })

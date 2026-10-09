@@ -2,8 +2,9 @@ import type { Harness } from '@/types/harness'
 import type { HarnessAdapter } from '@/lib/harness/types'
 import { claudeAdapter } from '@/lib/harness/claude/adapter'
 import { codexAdapter } from '@/lib/harness/codex/adapter'
+import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 
-const ALL: HarnessAdapter[] = [claudeAdapter, codexAdapter]
+const ALL: HarnessAdapter[] = [claudeAdapter, codexAdapter, copilotAdapter]
 
 /** Adapters whose harness dir exists on disk */
 export function adapters(): HarnessAdapter[] {

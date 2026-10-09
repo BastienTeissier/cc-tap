@@ -1,0 +1,9 @@
+{"type": "session.start", "data": {"sessionId": "22222222-0000-4000-8000-00000000000b", "copilotVersion": "1.0.90", "startTime": "2026-10-02T09:00:00.000Z", "context": {"cwd": "/Users/test/other", "branch": "dev"}}, "id": "e0", "timestamp": "2026-10-02T09:00:00.000Z", "parentId": null}
+{"type": "session.model_change", "data": {"newModel": "claude-sonnet-5-5"}, "id": "e1", "timestamp": "2026-10-02T09:00:00.000Z", "parentId": null}
+{"type": "user.message", "data": {"content": "Explore the repo"}, "id": "e2", "timestamp": "2026-10-02T09:00:01.000Z", "parentId": null}
+{"type": "assistant.turn_start", "data": {"turnId": "0", "interactionId": "i1"}, "id": "e3", "timestamp": "2026-10-02T09:00:02.000Z", "parentId": null}
+{"type": "assistant.message", "data": {"model": "claude-sonnet-5-5", "content": "", "toolRequests": [{"toolCallId": "t1", "name": "task", "arguments": {"prompt": "map it"}, "type": "function"}], "turnId": "0"}, "id": "e4", "timestamp": "2026-10-02T09:00:03.000Z", "parentId": null}
+{"type": "tool.execution_start", "data": {"toolCallId": "t1", "toolName": "task", "arguments": {"prompt": "map it"}, "turnId": "0"}, "id": "e5", "timestamp": "2026-10-02T09:00:03.000Z", "parentId": null}
+{"type": "tool.execution_complete", "data": {"toolCallId": "t1", "success": true, "result": {"content": "Mapped"}, "turnId": "0"}, "id": "e6", "timestamp": "2026-10-02T09:00:30.000Z", "parentId": null}
+{"type": "assistant.turn_end", "data": {"turnId": "0"}, "id": "e7", "timestamp": "2026-10-02T09:00:31.000Z", "parentId": null}
+{"type": "session.usage_checkpoint", "data": {"totalNanoAiu": 500000000, "totalPremiumRequests": 1}, "id": "e8", "timestamp": "2026-10-02T09:00:31.000Z", "parentId": null}

@@ -20,6 +20,13 @@ describe('contextLimit', () => {
     expect(contextLimit(undefined, T)).toBe(FALLBACK_CONTEXT_LIMIT)
   })
 
+  it('takes the window the session reported over the table', () => {
+    expect(contextLimit('gpt-5.5', T, 400_000)).toBe(400_000)
+    expect(contextLimit('claude-opus-5', T, 258_400)).toBe(258_400)
+    expect(contextLimit('gpt-5.5', T)).toBe(272_000)
+    expect(contextLimit('gpt-5.3-codex', T)).toBe(272_000)
+  })
+
   it('does not match a key that is only a text prefix', () => {
     expect(contextLimit('claude-opusx-1', T)).toBe(FALLBACK_CONTEXT_LIMIT)
   })

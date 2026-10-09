@@ -9,6 +9,16 @@ const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
   'claude-fable':  1_000_000,
   'claude-sonnet':   200_000,
   'claude-haiku':    200_000,
+  // OpenAI: the input cap of the GPT-5 family, the window Codex runs them at
+  // (Codex reports 95% of it). A Codex session's own report wins over these.
+  'gpt-5':           272_000,
+  'gpt-5.1':         272_000,
+  'gpt-5.2':         272_000,
+  'gpt-5.3':         272_000,
+  'gpt-5.4':         272_000,
+  'gpt-5.5':         272_000,
+  'gpt-4.1':       1_047_576,
+  'gpt-4o-mini':     128_000,
 }
 
 /** Used for a model with no entry at all */
@@ -22,9 +32,11 @@ function matchesLimitKey(model: string, key: string): boolean {
   return model === key || model.startsWith(`${key}-`)
 }
 
-/** The context window of a model, in tokens. Longest key wins, so a specific
- *  entry beats the family entry it sits under. */
-export function contextLimit(model: string | undefined, table: ContextLimits): number {
+/** The context window of a model, in tokens: the window the session itself
+ *  reported when there is one, else the table's longest matching key, so a
+ *  specific entry beats the family entry it sits under. */
+export function contextLimit(model: string | undefined, table: ContextLimits, override?: number): number {
+  if (override && override > 0) return override
   if (!model) return FALLBACK_CONTEXT_LIMIT
   if (table[model]) return table[model]
   const keys = Object.keys(table).sort((a, b) => b.length - a.length)

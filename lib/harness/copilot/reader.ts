@@ -39,7 +39,7 @@ export function parseWorkspaceYaml(text: string): Record<string, string> {
   return out
 }
 
-export async function readWorkspace(sessionDir: string): Promise<Record<string, string>> {
+async function readWorkspace(sessionDir: string): Promise<Record<string, string>> {
   try {
     return parseWorkspaceYaml(await fs.readFile(path.join(sessionDir, 'workspace.yaml'), 'utf8'))
   } catch {

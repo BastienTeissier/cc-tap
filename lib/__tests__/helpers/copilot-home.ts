@@ -2,7 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { DatabaseSync } from 'node:sqlite'
 
-export const COPILOT_FIXTURES = path.join(__dirname, '..', 'fixtures', 'copilot')
+const COPILOT_FIXTURES = path.join(__dirname, '..', 'fixtures', 'copilot')
 export const COPILOT_A = '11111111-0000-4000-8000-00000000000a'
 export const COPILOT_B = '22222222-0000-4000-8000-00000000000b'
 

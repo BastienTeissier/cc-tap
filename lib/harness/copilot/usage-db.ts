@@ -27,7 +27,7 @@ export interface CopilotUsageRow {
 const COLUMNS = 'session_id, turn_index, agent_id, parent_tool_call_id, model, input_tokens, output_tokens, '
   + 'cache_read_tokens, cache_write_tokens, reasoning_tokens, total_nano_aiu, request_multiplier, created_at, token_details_json'
 
-export function usageDbPath(): string {
+function usageDbPath(): string {
   return path.join(harnessDir('copilot'), 'session-store.db')
 }
 

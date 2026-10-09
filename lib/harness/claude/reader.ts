@@ -12,7 +12,7 @@ import type {
 import { slugToPath } from '@/lib/decode'
 import { listSubagentFiles, readAgentMeta, type SubagentFile } from '@/lib/subagent-files'
 import { pruneScanCache, scanFile } from '@/lib/transcript-scan'
-import { harnessDir } from '@/lib/harness/dirs'
+import { dirSize, harnessDir } from '@/lib/harness/dirs'
 import type { ParsedSession, RateLimitHit, SessionFileEntry, SessionRecord } from '@/lib/harness/types'
 import { mapPool, readJSONLLines } from '@/lib/jsonl'
 import { FALLBACK_MODEL } from '@/lib/pricing'
@@ -847,25 +847,5 @@ export async function readMemories(): Promise<MemoryEntry[]> {
 // ─── Storage size ─────────────────────────────────────────────────────────────
 
 export async function getClaudeStorageBytes(): Promise<number> {
-  async function dirSize(dirPath: string): Promise<number> {
-    let total = 0
-    try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true })
-      await Promise.all(
-        entries.map(async e => {
-          const full = path.join(dirPath, e.name)
-          if (e.isDirectory()) {
-            total += await dirSize(full)
-          } else {
-            try {
-              const stat = await fs.stat(full)
-              total += stat.size
-            } catch { /* skip */ }
-          }
-        })
-      )
-    } catch { /* skip inaccessible dirs */ }
-    return total
-  }
   return dirSize(harnessDir('claude'))
 }

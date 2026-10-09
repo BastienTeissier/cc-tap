@@ -46,7 +46,7 @@ export function ToolRankingChart({ tools }: Props) {
             {top.map((tool, i) => (
               <Cell
                 key={i}
-                fill={toolBarColor(tool.name)}
+                fill={toolBarColor(tool.name, tool.harness)}
                 fillOpacity={0.92}
               />
             ))}

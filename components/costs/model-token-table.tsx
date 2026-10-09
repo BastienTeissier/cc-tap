@@ -3,10 +3,6 @@ import { modelShortId } from '@/lib/model-label'
 import { HarnessBadge } from '@/components/ui/harness-badge'
 import type { ModelCostBreakdown } from '@/types/claude'
 
-function shortModel(m: string): string {
-  return modelShortId(m) ?? m
-}
-
 interface Props {
   models: ModelCostBreakdown[]
 }
@@ -39,7 +35,7 @@ export function ModelTokenTable({ models }: Props) {
             <tr key={`${m.harness}:${m.model}`} className="border-b border-border/30 hover:bg-muted/50 transition-colors">
               <td className="py-2"><HarnessBadge harness={m.harness} /></td>
               <td className="py-2 text-foreground/80">
-                {shortModel(m.model)}
+                {modelShortId(m.model)}
                 {m.priced_as && (
                   <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={`No price entry: charged at ${m.priced_as} rates`}>
                     est.

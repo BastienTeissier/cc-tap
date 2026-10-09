@@ -108,6 +108,7 @@ export function AgentTranscript({ sessionId, agentId, scrollToMs }: Props) {
       <PanelTurnList
         scroller={scroller}
         turns={data.turns}
+        harness="claude"
         toolResults={toolResults}
         compactions={data.compactions}
         hitUuids={search.hitUuids}

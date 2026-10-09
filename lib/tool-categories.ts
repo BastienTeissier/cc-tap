@@ -1,3 +1,5 @@
+import type { Harness } from '@/types/harness'
+
 export type ToolCategory =
   | 'file-io'
   | 'shell'
@@ -9,39 +11,58 @@ export type ToolCategory =
   | 'mcp'
   | 'other'
 
-export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
-  Read:           'file-io',
-  Write:          'file-io',
-  Edit:           'file-io',
-  Glob:           'file-io',
-  Grep:           'file-io',
-  NotebookEdit:   'file-io',
+const TOOL_CATEGORIES_BY_HARNESS: Record<Harness, Record<string, ToolCategory>> = {
+  claude: {
+    Read:           'file-io',
+    Write:          'file-io',
+    Edit:           'file-io',
+    Glob:           'file-io',
+    Grep:           'file-io',
+    NotebookEdit:   'file-io',
 
-  Bash:           'shell',
+    Bash:           'shell',
 
-  Task:           'agent',
-  Agent:          'agent',
-  Workflow:       'agent',
-  TaskCreate:     'agent',
-  TaskUpdate:     'agent',
-  TaskList:       'agent',
-  TaskOutput:     'agent',
-  TaskStop:       'agent',
-  TaskGet:        'agent',
+    Task:           'agent',
+    Agent:          'agent',
+    Workflow:       'agent',
+    TaskCreate:     'agent',
+    TaskUpdate:     'agent',
+    TaskList:       'agent',
+    TaskOutput:     'agent',
+    TaskStop:       'agent',
+    TaskGet:        'agent',
 
-  WebSearch:      'web',
-  WebFetch:       'web',
+    WebSearch:      'web',
+    WebFetch:       'web',
 
-  EnterPlanMode:  'planning',
-  ExitPlanMode:   'planning',
-  AskUserQuestion:'planning',
+    EnterPlanMode:  'planning',
+    ExitPlanMode:   'planning',
+    AskUserQuestion:'planning',
 
-  TodoWrite:      'todo',
+    TodoWrite:      'todo',
 
-  Skill:          'skill',
-  ToolSearch:     'skill',
-  ListMcpResourcesTool: 'skill',
-  ReadMcpResourceTool:  'skill',
+    Skill:          'skill',
+    ToolSearch:     'skill',
+    ListMcpResourcesTool: 'skill',
+    ReadMcpResourceTool:  'skill',
+  },
+
+  codex: {
+    exec_command:   'shell',
+    shell:          'shell',
+    shell_command:  'shell',
+    write_stdin:    'shell',
+
+    apply_patch:    'file-io',
+    read_file:      'file-io',
+    view_image:     'file-io',
+
+    update_plan:    'planning',
+
+    web_search:     'web',
+  },
+
+  copilot: {},
 }
 
 /** Theme tokens from app/globals.css — work in light & dark */
@@ -67,13 +88,13 @@ const TOOL_BAR_OVERRIDES: Record<string, string> = {
   NotebookEdit: 'var(--viz-tool-edit)',
 }
 
-export function categorizeTool(name: string): ToolCategory {
-  if (name.startsWith('mcp__')) return 'mcp'
-  return TOOL_CATEGORIES[name] ?? 'other'
+export function categorizeTool(name: string, harness: Harness = 'claude'): ToolCategory {
+  if (isMcpTool(name, harness)) return 'mcp'
+  return TOOL_CATEGORIES_BY_HARNESS[harness][name] ?? 'other'
 }
 
-export function toolBarColor(toolName: string): string {
-  return TOOL_BAR_OVERRIDES[toolName] ?? CATEGORY_COLORS[categorizeTool(toolName)]
+export function toolBarColor(toolName: string, harness: Harness = 'claude'): string {
+  return TOOL_BAR_OVERRIDES[toolName] ?? CATEGORY_COLORS[categorizeTool(toolName, harness)]
 }
 
 /**
@@ -96,17 +117,19 @@ export const CATEGORY_LABELS: Record<ToolCategory, string> = {
   'other':    'Other',
 }
 
-export function isMcpTool(name: string): boolean {
-  return name.startsWith('mcp__')
+/** MCP tools are `mcp__<server>__<tool>`; Codex also names them `<server>__<tool>` */
+export function isMcpTool(name: string, harness: Harness = 'claude'): boolean {
+  return name.startsWith('mcp__') || (harness === 'codex' && name.includes('__'))
 }
 
-export function parseMcpTool(name: string): { server: string; tool: string } | null {
-  if (!name.startsWith('mcp__')) return null
+export function parseMcpTool(name: string, harness: Harness = 'claude'): { server: string; tool: string } | null {
+  if (!isMcpTool(name, harness)) return null
   const parts = name.split('__')
-  if (parts.length < 3) return null
+  if (parts[0] === 'mcp') parts.shift()
+  if (parts.length < 2 || !parts[0]) return null
   return {
-    server: parts[1],
-    tool:   parts.slice(2).join('__'),
+    server: parts[0],
+    tool:   parts.slice(1).join('__'),
   }
 }
 

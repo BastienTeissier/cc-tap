@@ -31,15 +31,15 @@ export function parseModel(id: string): ParsedModel | null {
   return null
 }
 
-/** "claude-opus-5-5" -> "Opus 5.5"; null when the id is not a Claude model */
-export function modelLabel(id: string): string | null {
+/** "claude-opus-5-5" -> "Opus 5.5"; any other id (gpt-5.5, <synthetic>) as is */
+export function modelLabel(id: string): string {
   const m = parseModel(id)
-  if (!m) return null
+  if (!m) return id
   return `${m.family[0].toUpperCase()}${m.family.slice(1)} ${m.version}`
 }
 
-/** "claude-opus-5-5-20260901" -> "claude-opus-5.5"; null when the id is not a Claude model */
-export function modelShortId(id: string): string | null {
+/** "claude-opus-5-5-20260901" -> "claude-opus-5.5"; any other id as is */
+export function modelShortId(id: string): string {
   const m = parseModel(id)
-  return m ? `claude-${m.family}-${m.version}` : null
+  return m ? `claude-${m.family}-${m.version}` : id
 }

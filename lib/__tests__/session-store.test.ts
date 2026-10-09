@@ -14,6 +14,7 @@ vi.mock('@/lib/jsonl', async (importOriginal) => {
 // The store caches per module instance, so it is imported fresh after env setup.
 let tmpDir: string
 let previousClaudeConfigDir: string | undefined
+let previousCodexHome: string | undefined
 let store: typeof import('@/lib/harness/session-store')
 let adapter: typeof import('@/lib/harness/claude/adapter')
 
@@ -41,6 +42,9 @@ beforeAll(async () => {
 
   previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  // Keep a developer's real ~/.codex out of the store
+  previousCodexHome = process.env.CODEX_HOME
+  process.env.CODEX_HOME = path.join(tmpDir, 'no-codex')
   vi.resetModules()
   store = await import('@/lib/harness/session-store')
   adapter = await import('@/lib/harness/claude/adapter')
@@ -49,6 +53,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
   else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir
+  if (previousCodexHome === undefined) delete process.env.CODEX_HOME
+  else process.env.CODEX_HOME = previousCodexHome
   vi.resetModules()
   await fs.rm(tmpDir, { recursive: true, force: true })
 })

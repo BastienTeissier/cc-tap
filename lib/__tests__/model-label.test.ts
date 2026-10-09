@@ -31,10 +31,11 @@ describe('modelLabel', () => {
     expect(modelLabel('claude-3-opus-20240229')).toBe('Opus 3')
   })
 
-  it('returns null for anything else', () => {
-    expect(modelLabel('<synthetic>')).toBeNull()
-    expect(modelLabel('gpt-5')).toBeNull()
-    expect(modelLabel('claude-opusx-1')).toBeNull()
+  it('returns any other id as is', () => {
+    expect(modelLabel('<synthetic>')).toBe('<synthetic>')
+    expect(modelLabel('gpt-5.6-terra')).toBe('gpt-5.6-terra')
+    expect(modelLabel('claude-opusx-1')).toBe('claude-opusx-1')
+    expect(parseModel('gpt-5.5')).toBeNull()
     expect(parseModel('')).toBeNull()
   })
 })
@@ -44,6 +45,7 @@ describe('modelShortId', () => {
     expect(modelShortId('claude-opus-5-5')).toBe('claude-opus-5.5')
     expect(modelShortId('claude-sonnet-5-5-20260901')).toBe('claude-sonnet-5.5')
     expect(modelShortId('claude-opus-5')).toBe('claude-opus-5')
-    expect(modelShortId('<synthetic>')).toBeNull()
+    expect(modelShortId('<synthetic>')).toBe('<synthetic>')
+    expect(modelShortId('gpt-5.5')).toBe('gpt-5.5')
   })
 })

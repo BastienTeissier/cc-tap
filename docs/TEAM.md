@@ -99,6 +99,7 @@ Team exports are redacted by default (`metrics` level):
 | Data | Included? |
 | --- | --- |
 | Token counts, costs, durations, tool counts | Yes |
+| Harness of each session (Claude Code, Codex CLI, Copilot CLI) | Yes |
 | Session start/end times (day + hour granularity) | Yes |
 | Project folder name (`payments-api`) | Yes |
 | Full project path (`/Users/alice/...`) | No — collapsed to folder name |
@@ -113,8 +114,11 @@ sharing. The redaction is an allowlist: fields not explicitly listed in
 
 ## Data completeness and its limits
 
-The source of truth is each member's local `~/.claude/projects/**/*.jsonl`.
-An export contains every session recorded there at export time. Known gaps:
+The source of truth is each member's local harness files: Claude Code's
+`~/.claude/projects/**/*.jsonl`, Codex CLI's `~/.codex/` rollouts and Copilot
+CLI's `~/.copilot/` session state. An export contains every session recorded
+there at export time, each with its `harness`. Exports made before version
+1.1.0 have no harness field and are read as Claude Code sessions. Known gaps:
 
 - **Manual cadence.** Data is as fresh as the last export. Teams typically
   re-export weekly; a CI job or cron that hits

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { claudeTranscriptOr404 } from '@/lib/harness/claude-only'
+import { claudeTranscriptOr404 } from '@/app/api/sessions/[id]/claude-only'
 import { searchToolCalls, type SearchScope } from '@/lib/tool-search'
 
 export const dynamic = 'force-dynamic'

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import path from 'path'
 import { access, readFile } from 'fs/promises'
 import type { WorkflowRunDetail } from '@/types/claude'
-import { claudeTranscriptOr404 } from '@/lib/harness/claude-only'
+import { claudeTranscriptOr404 } from '@/app/api/sessions/[id]/claude-only'
 import { WORKFLOW_RUN_ID_RE, sessionDir, workflowRecordPath, workflowRunDir } from '@/lib/subagent-files'
 import { capJson, capText, readWorkflowJournal, readWorkflowRecord, recordPhases, recordStatus } from '@/lib/workflow-runs'
 

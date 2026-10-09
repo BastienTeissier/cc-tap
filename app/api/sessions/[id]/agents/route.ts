@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { claudeTranscriptOr404 } from '@/lib/harness/claude-only'
+import { claudeTranscriptOr404 } from '@/app/api/sessions/[id]/claude-only'
 import { parseAgentTimeline } from '@/lib/agent-timeline'
 
 export const dynamic = 'force-dynamic'

@@ -26,6 +26,7 @@ function coarsenTimestamp(ts: string | undefined): string | undefined {
 export function redactSession(session: SessionMeta, level: RedactionLevel): SessionMeta {
   return {
     session_id: session.session_id,
+    harness: session.harness,
     project_path: projectDisplayName(session.project_path),
     start_time: coarsenTimestamp(session.start_time),
     last_activity: coarsenTimestamp(session.last_activity),

@@ -5,8 +5,8 @@ import path from 'path'
 import { FALLBACK_MODEL, agentsCost, sessionCost } from '@/lib/pricing'
 import { sliceSession } from '@/lib/session-ledger'
 
-// Fixture-driven test against a fake ~/.claude dir. CLAUDE_CONFIG_DIR is read
-// at module load, so the reader is imported dynamically after env setup.
+// Fixture-driven test against a fake ~/.claude dir. The reader caches what it
+// reads per module instance, so it is imported fresh after env setup.
 let tmpDir: string
 let reader: typeof import('@/lib/claude-reader')
 let previousClaudeConfigDir: string | undefined

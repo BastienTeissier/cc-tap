@@ -16,7 +16,7 @@ import { harnessDir } from '@/lib/harness/dirs'
 import type { ParsedSession, RateLimitHit, SessionFileEntry, SessionRecord } from '@/lib/harness/types'
 import { mapPool, readJSONLLines } from '@/lib/jsonl'
 import { FALLBACK_MODEL } from '@/lib/pricing'
-import { LedgerBuilder, NO_MODEL, hasModeledTurns, ledgerMetrics, type TurnLedger } from '@/lib/session-ledger'
+import { LedgerBuilder, NO_MODEL, hasModeledTurns, ledgerMetrics } from '@/lib/session-ledger'
 import { ResponseTracker, oneHourWrite, responseKey } from '@/lib/response-usage'
 import { readCostState, reportedCost, type CostState } from '@/lib/reported-cost'
 

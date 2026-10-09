@@ -1,3 +1,5 @@
+import type { Harness } from '@/types/harness'
+
 // ─── Stats Cache ─────────────────────────────────────────────────────────────
 
 export interface DailyActivity {
@@ -59,6 +61,8 @@ export interface StatsCache {
 
 export interface SessionMeta {
   session_id: string
+  /** The CLI that wrote the session */
+  harness: Harness
   project_path: string
   start_time: string
   last_activity?: string

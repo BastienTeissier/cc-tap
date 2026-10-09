@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server'
-import { getSessions, listProjectSlugs, listProjectJSONLFiles, readJSONLLines, resolveProjectPath } from '@/lib/claude-reader'
+import { getSessions, listProjectSlugs, resolveProjectPath } from '@/lib/claude-reader'
 import { sessionCost } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 import type { ProjectSummary } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyLine = Record<string, any>
 
 export async function GET() {
   const [sessions, slugDirs] = await Promise.all([getSessions(), listProjectSlugs()])
@@ -28,25 +25,6 @@ export async function GET() {
     if (!byPath.has(pp)) byPath.set(pp, [])
     byPath.get(pp)!.push(s)
   }
-
-  // Gather branches per slug from JSONL
-  const slugBranches = new Map<string, Set<string>>()
-  await Promise.all(
-    slugDirs.map(async (slug) => {
-      const files = await listProjectJSONLFiles(slug)
-      const branches = new Set<string>()
-      await Promise.all(
-        files.map(async (f) => {
-          await readJSONLLines(f, (line: AnyLine) => {
-            if (line.gitBranch && line.gitBranch !== 'HEAD') {
-              branches.add(line.gitBranch)
-            }
-          })
-        })
-      )
-      slugBranches.set(slug, branches)
-    })
-  )
 
   const projects: ProjectSummary[] = []
 
@@ -84,6 +62,7 @@ export async function GET() {
     }
 
     const sortedDates = sessionList.map(s => s.start_time).sort()
+    const branches = new Set(sessionList.flatMap(s => Object.keys(s.git_branches)))
 
     projects.push({
       slug,
@@ -106,7 +85,7 @@ export async function GET() {
       first_active: sortedDates[0] ?? '',
       uses_mcp: sessionList.some(s => s.uses_mcp),
       uses_task_agent: sessionList.some(s => s.uses_task_agent),
-      branches: [...(slugBranches.get(slug) ?? new Set())].slice(0, 10),
+      branches: [...branches].slice(0, 10),
     })
   }
 

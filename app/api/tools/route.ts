@@ -1,13 +1,9 @@
-import path from 'path'
 import { NextResponse } from 'next/server'
-import { getSessions, listProjectSlugs, listProjectJSONLFiles, readJSONLLines } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/claude-reader'
 import { categorizeTool, isMcpTool, parseMcpTool } from '@/lib/tool-categories'
 import type { ToolsAnalytics, ToolSummary, McpServerSummary, VersionRecord } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyLine = Record<string, any>
 
 export async function GET() {
   const sessions = await getSessions()
@@ -91,42 +87,23 @@ export async function GET() {
     feature_adoption[key] = { sessions: count, pct: totalSessions > 0 ? count / totalSessions : 0 }
   }
 
-  // ── Version + branch info from JSONL ─────────────────────────────────────
+  // ── Version + branch info ─────────────────────────────────────────────────
   const versionData = new Map<string, { sessions: Set<string>; dates: string[] }>()
   const branchTurns = new Map<string, number>()
 
-  const slugs = await listProjectSlugs()
-  await Promise.all(
-    slugs.map(async (slug) => {
-      const files = await listProjectJSONLFiles(slug)
-      await Promise.all(
-        files.map(async (f) => {
-          const sessionId = path.basename(f, '.jsonl')
-          let fileVersion: string | undefined
-          let fileDate: string | undefined
-
-          await readJSONLLines(f, (line: AnyLine) => {
-            if (!fileVersion && line.version) {
-              fileVersion = line.version
-              fileDate = line.timestamp
-            }
-            if (line.gitBranch && line.gitBranch !== 'HEAD') {
-              branchTurns.set(line.gitBranch, (branchTurns.get(line.gitBranch) ?? 0) + 1)
-            }
-          })
-
-          if (fileVersion) {
-            if (!versionData.has(fileVersion)) {
-              versionData.set(fileVersion, { sessions: new Set(), dates: [] })
-            }
-            const vd = versionData.get(fileVersion)!
-            vd.sessions.add(sessionId)
-            if (fileDate) vd.dates.push(fileDate)
-          }
-        })
-      )
-    })
-  )
+  for (const s of sessions) {
+    if (s.cc_version) {
+      if (!versionData.has(s.cc_version)) {
+        versionData.set(s.cc_version, { sessions: new Set(), dates: [] })
+      }
+      const vd = versionData.get(s.cc_version)!
+      vd.sessions.add(s.session_id)
+      vd.dates.push(s.start_time)
+    }
+    for (const [branch, lines] of Object.entries(s.git_branches)) {
+      branchTurns.set(branch, (branchTurns.get(branch) ?? 0) + lines)
+    }
+  }
 
   const versions: VersionRecord[] = [...versionData.entries()]
     .map(([version, data]) => {

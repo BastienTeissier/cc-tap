@@ -20,6 +20,7 @@ function usage(overrides: Partial<ModelUsage> = {}): ModelUsage {
 function makeSession(overrides: Partial<SessionMeta & { has_compaction?: boolean }> = {}): SessionMeta & { has_compaction?: boolean } {
   return {
     session_id: `sess-${Math.random()}`,
+    harness: 'claude',
     project_path: '/Users/alice/proj',
     start_time: '2026-06-05T10:00:00.000Z',
     last_activity: '2026-06-05T11:00:00.000Z',

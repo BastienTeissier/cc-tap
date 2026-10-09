@@ -1,5 +1,5 @@
 import type { ReplayData, ReplayTurn, ToolCall, TurnUsage } from '@/types/claude'
-import { estimateCostFromUsage } from '@/lib/pricing'
+import { copilotCostUSD, estimateCostFromUsage } from '@/lib/pricing'
 import { readJSONLLines } from '@/lib/jsonl'
 import { eventTime, rowTokens, sessionStart, type CopilotEvent } from './reader'
 import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
@@ -52,7 +52,8 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
       usage = { input_tokens: t.input, output_tokens: t.output, cache_read_input_tokens: t.cacheRead, cache_creation_input_tokens: t.cacheWrite }
     }
     const turnModel = row?.model ?? pending.model
-    const cost = usage && turnModel ? estimateCostFromUsage(turnModel, usage) : undefined
+    // What Copilot billed for the call, else the token table's estimate
+    const cost = row ? (copilotCostUSD(row.total_nano_aiu ?? 0) ?? estimateCostFromUsage(row.model, usage!)) : undefined
     if (cost) totalCost += cost
     const duration = endTs ? Date.parse(endTs) - Date.parse(pending.timestamp) : NaN
     push({

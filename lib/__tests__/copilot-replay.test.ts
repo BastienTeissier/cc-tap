@@ -3,16 +3,19 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
-import { estimateCostFromUsage } from '@/lib/pricing'
 import type { ReplayData } from '@/types/claude'
 import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, type CopilotRow } from './helpers/copilot-home'
 
 let saved: string | undefined
+let savedConfig: string | undefined
 let root: string
 let replay: ReplayData
 
 beforeAll(async () => {
   saved = process.env.COPILOT_HOME
+  // The AIU rate must not come from the developer's ~/.cc-lens/pricing.json
+  savedConfig = process.env.CC_LENS_CONFIG_DIR
+  process.env.CC_LENS_CONFIG_DIR = '/nonexistent-cc-lens-test'
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
   await makeCopilotHome(root)
   process.env.COPILOT_HOME = root
@@ -23,6 +26,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (saved === undefined) delete process.env.COPILOT_HOME
   else process.env.COPILOT_HOME = saved
+  if (savedConfig === undefined) delete process.env.CC_LENS_CONFIG_DIR
+  else process.env.CC_LENS_CONFIG_DIR = savedConfig
   await fs.rm(root, { recursive: true, force: true })
 })
 
@@ -38,7 +43,9 @@ describe('copilot replay', () => {
     expect(first.tool_calls?.map(c => c.name)).toEqual(['view', 'view', 'bash'])
     expect(first.tool_calls?.[2]).toMatchObject({ result: '1 test failed', is_error: true })
     expect(results.tool_results?.map(r => r.is_error)).toEqual([false, false, true])
-    expect(replay.total_cost).toBeCloseTo(estimateCostFromUsage('gpt-5.5', first.usage!) + estimateCostFromUsage('gpt-5.5', second.usage!))
+    // 1 AIU per call at $0.01
+    expect(first.estimated_cost).toBeCloseTo(0.01)
+    expect(replay.total_cost).toBeCloseTo(0.02)
   })
 })
 

@@ -53,9 +53,14 @@ describe('session store', () => {
   })
 
   it('counts lines per git branch in the parsing pass, skipping HEAD', async () => {
+    const [record] = await store.getAllSessionRecords()
+    expect(record.git_branches).toEqual({ main: 2, feat: 1 })
+    expect(record.session.git_branch).toBe('main')
+  })
+
+  it('keeps the branch counts off the public session', async () => {
     const [session] = await store.getAllParsedSessions()
-    expect(session.git_branches).toEqual({ main: 2, feat: 1 })
-    expect(session.git_branch).toBe('main')
+    expect(session).not.toHaveProperty('git_branches')
   })
 
   it('reparses a file only when its mtime changes', async () => {

@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
-import { getSessions, listProjectSlugs, resolveProjectPath } from '@/lib/claude-reader'
+import { getAllSessionRecords, listProjectSlugs, resolveProjectPath } from '@/lib/claude-reader'
 import { sessionCost } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 import type { ProjectSummary } from '@/types/claude'
+import type { SessionRecord } from '@/lib/harness/types'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const [sessions, slugDirs] = await Promise.all([getSessions(), listProjectSlugs()])
+  const [records, slugDirs] = await Promise.all([getAllSessionRecords(), listProjectSlugs()])
 
   // Build path→slug lookup from actual project directories
   const pathToSlugMap = new Map<string, string>()
@@ -19,11 +20,14 @@ export async function GET() {
   )
 
   // Group sessions by project_path
-  const byPath = new Map<string, typeof sessions>()
-  for (const s of sessions) {
+  const byPath = new Map<string, SessionRecord['session'][]>()
+  const branchesByPath = new Map<string, Set<string>>()
+  for (const { session: s, git_branches } of records) {
     const pp = s.project_path ?? ''
     if (!byPath.has(pp)) byPath.set(pp, [])
     byPath.get(pp)!.push(s)
+    if (!branchesByPath.has(pp)) branchesByPath.set(pp, new Set())
+    for (const branch of Object.keys(git_branches)) branchesByPath.get(pp)!.add(branch)
   }
 
   const projects: ProjectSummary[] = []
@@ -62,7 +66,6 @@ export async function GET() {
     }
 
     const sortedDates = sessionList.map(s => s.start_time).sort()
-    const branches = new Set(sessionList.flatMap(s => Object.keys(s.git_branches)))
 
     projects.push({
       slug,
@@ -85,7 +88,7 @@ export async function GET() {
       first_active: sortedDates[0] ?? '',
       uses_mcp: sessionList.some(s => s.uses_mcp),
       uses_task_agent: sessionList.some(s => s.uses_task_agent),
-      branches: [...branches].slice(0, 10),
+      branches: [...(branchesByPath.get(projectPath) ?? [])].slice(0, 10),
     })
   }
 

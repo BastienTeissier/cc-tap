@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
-import { getSessions } from '@/lib/claude-reader'
+import { getAllSessionRecords } from '@/lib/claude-reader'
 import { categorizeTool, isMcpTool, parseMcpTool } from '@/lib/tool-categories'
 import type { ToolsAnalytics, ToolSummary, McpServerSummary, VersionRecord } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const sessions = await getSessions()
+  const records = await getAllSessionRecords()
+  const sessions = records.map(r => r.session)
   const totalSessions = sessions.length
 
   // ── Aggregate tool counts across all sessions ──────────────────────────────
@@ -91,7 +92,7 @@ export async function GET() {
   const versionData = new Map<string, { sessions: Set<string>; dates: string[] }>()
   const branchTurns = new Map<string, number>()
 
-  for (const s of sessions) {
+  for (const { session: s, git_branches } of records) {
     if (s.cc_version) {
       if (!versionData.has(s.cc_version)) {
         versionData.set(s.cc_version, { sessions: new Set(), dates: [] })
@@ -100,7 +101,7 @@ export async function GET() {
       vd.sessions.add(s.session_id)
       vd.dates.push(s.start_time)
     }
-    for (const [branch, lines] of Object.entries(s.git_branches)) {
+    for (const [branch, lines] of Object.entries(git_branches)) {
       branchTurns.set(branch, (branchTurns.get(branch) ?? 0) + lines)
     }
   }

@@ -21,8 +21,6 @@ export interface ParsedSession extends SessionMeta {
   /** The harness CLI's version (Claude Code's `version` for Claude sessions) */
   cc_version?: string
   git_branch?: string
-  /** Branch → transcript lines recorded on it ("HEAD" excluded) */
-  git_branches: Record<string, number>
   has_compaction: boolean
   has_thinking: boolean
 }
@@ -35,6 +33,8 @@ export interface SessionRecord {
   ledger: TurnLedger
   /** Five-hour limit rejections, for /api/usage-windows */
   rate_limit_hits: RateLimitHit[]
+  /** Branch → transcript lines recorded on it ("HEAD" excluded), for /api/tools and /api/projects */
+  git_branches: Record<string, number>
   /** The transcript's last cost-state line, and whether a model call followed it: what
    *  reported_cost is re-derived from once the sub-agents are folded in */
   cost_state?: { state: CostState | null; callsAfter: boolean }

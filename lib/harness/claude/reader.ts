@@ -256,11 +256,10 @@ export async function parseSessionFile(filePath: string, sessionId: string): Pro
     ai_title: aiTitle,
     cc_version: ccVersion,
     git_branch: gitBranch,
-    git_branches: gitBranches,
     has_compaction: hasCompaction,
     has_thinking: hasThinking,
   }
-  return { session, ledger: turns, rate_limit_hits: rateLimitHits, cost_state: { state: costState, callsAfter: callsAfterCostState } }
+  return { session, ledger: turns, rate_limit_hits: rateLimitHits, git_branches: gitBranches, cost_state: { state: costState, callsAfter: callsAfterCostState } }
 }
 
 // ─── Sub-agent usage ─────────────────────────────────────────────────────────

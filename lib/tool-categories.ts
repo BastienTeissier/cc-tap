@@ -62,7 +62,22 @@ const TOOL_CATEGORIES_BY_HARNESS: Record<Harness, Record<string, ToolCategory>> 
     web_search:     'web',
   },
 
-  copilot: {},
+  copilot: {
+    view:           'file-io',
+    rg:             'file-io',
+    glob:           'file-io',
+    apply_patch:    'file-io',
+    create:         'file-io',
+    edit:           'file-io',
+
+    bash:           'shell',
+
+    task:           'agent',
+
+    web_fetch:      'web',
+
+    skill:          'skill',
+  },
 }
 
 /** Theme tokens from app/globals.css — work in light & dark */
@@ -117,13 +132,22 @@ export const CATEGORY_LABELS: Record<ToolCategory, string> = {
   'other':    'Other',
 }
 
-/** MCP tools are `mcp__<server>__<tool>`; Codex also names them `<server>__<tool>` */
+// Copilot's built-in GitHub MCP server: github-mcp-server-<tool>
+const COPILOT_GITHUB_MCP = 'github-mcp-server-'
+
+/** MCP tools are `mcp__<server>__<tool>`; Codex also names them `<server>__<tool>`,
+ *  and Copilot its GitHub server's `github-mcp-server-<tool>` */
 export function isMcpTool(name: string, harness: Harness = 'claude'): boolean {
-  return name.startsWith('mcp__') || (harness === 'codex' && name.includes('__'))
+  return name.startsWith('mcp__')
+    || (harness === 'codex' && name.includes('__'))
+    || (harness === 'copilot' && name.startsWith(COPILOT_GITHUB_MCP))
 }
 
 export function parseMcpTool(name: string, harness: Harness = 'claude'): { server: string; tool: string } | null {
   if (!isMcpTool(name, harness)) return null
+  if (harness === 'copilot' && name.startsWith(COPILOT_GITHUB_MCP)) {
+    return { server: 'github-mcp-server', tool: name.slice(COPILOT_GITHUB_MCP.length) }
+  }
   const parts = name.split('__')
   if (parts[0] === 'mcp') parts.shift()
   if (parts.length < 2 || !parts[0]) return null

@@ -4,7 +4,6 @@ import os from 'os'
 import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import { parseWorkspaceYaml } from '@/lib/harness/copilot/reader'
-import { usageDbMtimeMs } from '@/lib/harness/copilot/usage-db'
 import type { SessionFileEntry, SessionRecord } from '@/lib/harness/types'
 import { COPILOT_A as A, COPILOT_B as B, makeCopilotHome } from './helpers/copilot-home'
 
@@ -36,13 +35,21 @@ describe('copilot reader', () => {
     expect(entries.every(e => e.harness === 'copilot' && e.path.endsWith('events.jsonl'))).toBe(true)
   })
 
-  it('dates a session by its events or the DB, whichever is newer', async () => {
-    const dbMtime = usageDbMtimeMs()
-    expect(dbMtime).toBeGreaterThan(0)
-    for (const e of entries) {
-      const { mtimeMs } = await fs.stat(e.path)
-      expect(e.mtimeMs).toBe(Math.max(mtimeMs, dbMtime))
-    }
+  it('dates a session by its events or its own latest usage row, whichever is newer', async () => {
+    const lastRowA = Date.parse('2026-10-02T10:00:15.000Z')
+    const pathOf = (id: string) => entries.find(e => e.session_id === id)!.path
+    const mtimeOf = async (id: string) => (await copilotAdapter.listSessionFiles()).find(e => e.session_id === id)!.mtimeMs
+    const older = new Date(lastRowA - 60_000)
+    const newer = new Date(lastRowA + 60_000)
+
+    await fs.utimes(pathOf(A), older, older)
+    await fs.utimes(pathOf(B), older, older)
+    expect(await mtimeOf(A)).toBe(lastRowA)
+    // B has no rows: A's write does not date it
+    expect(await mtimeOf(B)).toBe(older.getTime())
+
+    await fs.utimes(pathOf(A), newer, newer)
+    expect(await mtimeOf(A)).toBe(newer.getTime())
   })
 
   it('builds the ledger from the usage rows, sub-agent calls apart', () => {

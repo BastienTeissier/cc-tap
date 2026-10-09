@@ -5,7 +5,7 @@ import { dirSize, existingHarnessDir, harnessDir } from '@/lib/harness/dirs'
 import { categorizeTool } from '@/lib/tool-categories'
 import { parseCopilotSession } from './reader'
 import { parseCopilotReplay } from './replay'
-import { usageDbMtimeMs } from './usage-db'
+import { lastUsageMs } from './usage-db'
 
 /** Copilot CLI: ~/.copilot/session-state/<id>/events.jsonl, tokens in ~/.copilot/session-store.db */
 export const copilotAdapter: HarnessAdapter = {
@@ -20,13 +20,13 @@ export const copilotAdapter: HarnessAdapter = {
     } catch {
       return []
     }
-    // A session's tokens land in the DB: its writes must invalidate the cached parse too
-    const dbMtime = usageDbMtimeMs()
+    // A session's tokens land in the DB: its latest row must invalidate the cached parse too
+    const lastUsage = lastUsageMs()
     const entries = await Promise.all(dirs.filter(d => d.isDirectory()).map(async (d): Promise<SessionFileEntry | null> => {
       const filePath = path.join(root, d.name, 'events.jsonl')
       try {
         const stat = await fs.stat(filePath)
-        return { harness: 'copilot', session_id: d.name, path: filePath, mtimeMs: Math.max(stat.mtimeMs, dbMtime) }
+        return { harness: 'copilot', session_id: d.name, path: filePath, mtimeMs: Math.max(stat.mtimeMs, lastUsage.get(d.name) ?? 0) }
       } catch {
         return null // no events yet, or vanished
       }

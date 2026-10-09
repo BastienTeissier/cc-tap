@@ -59,13 +59,19 @@ export function usageFor(sessionId: string): CopilotUsageRow[] | null {
   }
 }
 
-/** Last write to the DB, its WAL included (new rows land there first); 0 when absent */
-export function usageDbMtimeMs(): number {
-  let latest = 0
-  for (const file of [usageDbPath(), `${usageDbPath()}-wal`]) {
-    try {
-      latest = Math.max(latest, fs.statSync(file).mtimeMs)
-    } catch { /* absent */ }
-  }
-  return latest
+/** Time of each session's latest billed call, by session id; empty when the DB is absent or unreadable.
+ *  One query per scan: a write for one session must not date the others. */
+export function lastUsageMs(): Map<string, number> {
+  const db = getDb()
+  const last = new Map<string, number>()
+  if (!db) return last
+  try {
+    const rows = db.prepare('SELECT session_id, MAX(created_at) AS at FROM assistant_usage_events GROUP BY session_id')
+      .all() as unknown as Array<{ session_id: string; at: string }>
+    for (const r of rows) {
+      const at = Date.parse(r.at)
+      if (Number.isFinite(at)) last.set(r.session_id, at)
+    }
+  } catch { /* locked, or an older schema */ }
+  return last
 }

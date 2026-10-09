@@ -1,7 +1,7 @@
 import type { ReplayData, ReplayTurn, ToolCall, TurnUsage } from '@/types/claude'
 import { estimateCostFromUsage } from '@/lib/pricing'
 import { readJSONLLines } from '@/lib/jsonl'
-import { eventTime, rowTokens, type CopilotEvent } from './reader'
+import { eventTime, rowTokens, sessionStart, type CopilotEvent } from './reader'
 import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
 
 /** A tool result's text: its content, or the error Copilot reported */
@@ -76,11 +76,13 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
     const d = e.data
     const ts = eventTime(e)
     switch (e.type) {
-      case 'session.start':
-        if (typeof d?.sessionId === 'string') id = d.sessionId
-        if (typeof d?.copilotVersion === 'string') version = d.copilotVersion
-        if (typeof d?.context?.branch === 'string' && d.context.branch) gitBranch = d.context.branch
+      case 'session.start': {
+        const start = sessionStart(d)
+        id = start.id ?? id
+        version = start.version ?? version
+        gitBranch = start.branch ?? gitBranch
         break
+      }
       case 'session.model_change':
         if (typeof d?.newModel === 'string') model = d.newModel
         break

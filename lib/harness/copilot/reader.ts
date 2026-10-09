@@ -20,6 +20,12 @@ export function eventTime(e: CopilotEvent): string {
   return typeof e.timestamp === 'string' && Number.isFinite(Date.parse(e.timestamp)) ? e.timestamp : ''
 }
 
+/** What a session.start event says about the session */
+export function sessionStart(d: CopilotEvent['data']): { id?: string; version?: string; cwd?: string; branch?: string } {
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
+  return { id: str(d?.sessionId), version: str(d?.copilotVersion), cwd: str(d?.context?.cwd), branch: str(d?.context?.branch) }
+}
+
 /** Top-level `key: value` pairs of workspace.yaml, quotes removed. Enough for the flat
  *  file Copilot writes; nested or multi-line values are not read. */
 export function parseWorkspaceYaml(text: string): Record<string, string> {
@@ -87,12 +93,14 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
       lastTime = ts
     }
     switch (e.type) {
-      case 'session.start':
-        if (typeof d?.sessionId === 'string') id = d.sessionId
-        if (typeof d?.copilotVersion === 'string') version = d.copilotVersion
-        if (typeof d?.context?.cwd === 'string') cwd = d.context.cwd
-        if (typeof d?.context?.branch === 'string' && d.context.branch) gitBranch = d.context.branch
+      case 'session.start': {
+        const start = sessionStart(d)
+        id = start.id ?? id
+        version = start.version ?? version
+        cwd = start.cwd ?? cwd
+        gitBranch = start.branch ?? gitBranch
         break
+      }
       case 'session.model_change':
         if (typeof d?.newModel === 'string') model = d.newModel
         break

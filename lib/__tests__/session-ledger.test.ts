@@ -9,7 +9,7 @@ const MODEL = 'claude-sonnet-4-5'
 
 function meta(start: number, end: number, extra: Partial<SessionMeta> = {}): SessionMeta {
   return {
-    session_id: 's1', project_path: '/p',
+    session_id: 's1', harness: 'claude', project_path: '/p',
     start_time: new Date(start).toISOString(), last_activity: new Date(end).toISOString(),
     duration_minutes: (end - start) / MIN,
     user_message_count: 0, assistant_message_count: 0, tool_counts: {}, languages: {},

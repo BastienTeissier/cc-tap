@@ -9,6 +9,7 @@ import type { SessionMeta, TeamExportPayload } from '@/types/claude'
 function makeSession(overrides: Partial<SessionMeta> = {}): SessionMeta {
   return {
     session_id: 'sess-1',
+    harness: 'claude',
     project_path: '/Users/alice/Developer/secret-org/payments-api',
     start_time: '2026-06-01T10:00:00.000Z',
     last_activity: '2026-06-01T11:00:00.000Z',

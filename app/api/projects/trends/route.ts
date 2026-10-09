@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getSessions, listProjectSlugs, resolveProjectPath } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { listProjectSlugs, resolveProjectPath } from '@/lib/harness/claude/reader'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { projectDisplayName } from '@/lib/decode'
 import { sessionCost } from '@/lib/pricing'
 import type { ProjectTrend, ProjectTrendPoint, SessionMeta } from '@/types/claude'
@@ -85,7 +87,8 @@ export async function GET(req: Request) {
   const currentStart = addDays(today, -(rangeDays - 1))
   const previousStart = addDays(currentStart, -rangeDays)
 
-  const [sessions, slugDirs] = await Promise.all([getSessions(), listProjectSlugs()])
+  const [all, slugDirs] = await Promise.all([getSessions(), listProjectSlugs()])
+  const sessions = filterByHarness(all, harnessesFromSearch(url.search))
 
   const pathToSlugMap = new Map<string, string>()
   await Promise.all(

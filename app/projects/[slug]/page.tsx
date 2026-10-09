@@ -2,6 +2,7 @@
 
 import { useParams } from 'next/navigation'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import Link from 'next/link'
 import { TopBar } from '@/components/layout/top-bar'
 import { formatCost, formatDuration, formatDate, formatTokens } from '@/lib/decode'
@@ -37,11 +38,12 @@ interface ProjectDetail {
 const LANG_CHART_COLORS = ['#d97706', 'var(--viz-sky)', '#34d399', '#a78bfa', '#fbbf24', '#f87171']
 
 export default function ProjectDetailPage() {
+  const { apiQuery } = useHarnessFilter()
   const params = useParams()
   const slug = params?.slug as string
 
   const { data, error, isLoading } = useSWR<ProjectDetail>(
-    slug ? `/api/projects/${slug}` : null, fetcher
+    slug ? apiQuery(`/api/projects/${slug}`) : null, fetcher
   )
 
   if (error) {

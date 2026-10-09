@@ -1,6 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import { ToolRankingChart } from '@/components/tools/tool-ranking-chart'
 import { McpServerPanel } from '@/components/tools/mcp-server-panel'
@@ -18,7 +19,8 @@ const fetcher = (url: string) =>
   fetch(url).then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })
 
 export default function ToolsPage() {
-  const { data, error, isLoading } = useSWR<ToolsAnalytics>('/api/tools', fetcher, { refreshInterval: 5_000 })
+  const { apiQuery } = useHarnessFilter()
+  const { data, error, isLoading } = useSWR<ToolsAnalytics>(apiQuery('/api/tools'), fetcher, { refreshInterval: 5_000 })
 
   return (
     <div className="flex flex-col min-h-screen">

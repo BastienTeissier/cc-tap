@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import { formatTokens, formatCost } from '@/lib/decode'
 import type { WrappedStats } from '@/app/api/wrapped/route'
@@ -109,9 +110,10 @@ function WrappedCard({ stats, svgRef }: { stats: WrappedStats; svgRef: React.Ref
 }
 
 export default function WrappedPage() {
+  const { apiQuery } = useHarnessFilter()
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
-  const { data, error, isLoading } = useSWR<WrappedStats>(`/api/wrapped?year=${year}`, fetcher)
+  const { data, error, isLoading } = useSWR<WrappedStats>(apiQuery(`/api/wrapped?year=${year}`), fetcher)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [downloading, setDownloading] = useState(false)
 

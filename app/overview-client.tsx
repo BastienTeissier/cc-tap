@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { BarChart3, PieChart, Clock } from 'lucide-react'
 import { UsageOverTimeChart } from '@/components/overview/usage-over-time-chart'
 import { ModelBreakdownDonut } from '@/components/overview/model-breakdown-donut'
@@ -12,6 +13,7 @@ import { LiveSessionsPanel } from '@/components/overview/live-sessions-panel'
 import { StatCard } from '@/components/overview/stat-card'
 import { formatTokens, formatBytes } from '@/lib/decode'
 import { FALLBACK_MODEL, getPricing } from '@/lib/pricing'
+import { harnessRowKey } from '@/lib/harness/row-key'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -100,17 +102,18 @@ function sessionCacheSavings(session: SessionWithFacet): number {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function OverviewClient() {
+  const { apiQuery } = useHarnessFilter()
   const { theme } = useTheme()
   const [datePreset, setDatePreset] = useState<DatePreset>('30d')
   const [customRange, setCustomRange] = useState<CustomRange>({})
 
-  const { data, error, isLoading } = useSWR<ApiResponse>('/api/stats', fetcher, {
+  const { data, error, isLoading } = useSWR<ApiResponse>(apiQuery('/api/stats'), fetcher, {
     refreshInterval: 5_000,
   })
-  const { data: sessionsData } = useSWR<{ sessions: SessionWithFacet[] }>('/api/sessions', fetcher, {
+  const { data: sessionsData } = useSWR<{ sessions: SessionWithFacet[] }>(apiQuery('/api/sessions'), fetcher, {
     refreshInterval: 5_000,
   })
-  const { data: projectsData } = useSWR<{ projects: ProjectSummary[] }>('/api/projects', fetcher, {
+  const { data: projectsData } = useSWR<{ projects: ProjectSummary[] }>(apiQuery('/api/projects'), fetcher, {
     refreshInterval: 5_000,
   })
 
@@ -201,9 +204,11 @@ export function OverviewClient() {
     const totalCost = rangeSessions.reduce((sum, s) => sum + sessionCost(s), 0)
     const previousCost = previousSessions.reduce((sum, s) => sum + sessionCost(s), 0)
     const totalCacheSavings = rangeSessions.reduce((sum, s) => sum + sessionCacheSavings(s), 0)
+    // Keyed by harnessRowKey(harness, model): one model under two harnesses is two slices
     const modelUsage = rangeSessions.reduce<Record<string, NonNullable<SessionWithFacet['model_usage']>[string]>>((acc, session) => {
       for (const [model, usage] of Object.entries(session.model_usage ?? {})) {
-        const existing = acc[model] ?? {
+        const key = harnessRowKey(session.harness, model)
+        const existing = acc[key] ?? {
           inputTokens: 0,
           outputTokens: 0,
           cacheReadInputTokens: 0,
@@ -217,7 +222,7 @@ export function OverviewClient() {
         existing.cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0
         existing.costUSD += usage.costUSD ?? 0
         existing.webSearchRequests += usage.webSearchRequests ?? 0
-        acc[model] = existing
+        acc[key] = existing
       }
       return acc
     }, {})
@@ -253,11 +258,16 @@ export function OverviewClient() {
           uses_mcp: false,
           uses_task_agent: false,
           branches: [],
+          by_harness: {},
         } satisfies ProjectSummary
         existing.session_count += 1
         existing.total_messages += (session.user_message_count ?? 0) + (session.assistant_message_count ?? 0)
         existing.total_duration_minutes += session.duration_minutes ?? 0
         existing.estimated_cost += sessionCost(session)
+        const byHarness = existing.by_harness[session.harness] ?? { sessions: 0, estimated_cost: 0 }
+        byHarness.sessions += 1
+        byHarness.estimated_cost += sessionCost(session)
+        existing.by_harness[session.harness] = byHarness
         existing.input_tokens += session.input_tokens ?? 0
         existing.output_tokens += session.output_tokens ?? 0
         existing.uses_mcp = existing.uses_mcp || session.uses_mcp

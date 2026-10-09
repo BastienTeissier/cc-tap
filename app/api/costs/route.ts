@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getSessions } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { FALLBACK_MODEL, estimateTotalCostFromModel, cacheEfficiency, hasKnownPricing, pricedAs, usageCost } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 import type { CostAnalytics, ModelCostBreakdown, DailyCost, ProjectCost, ModelUsage, SessionMeta } from '@/types/claude'
+import type { Harness } from '@/types/harness'
+import { harnessRowKey as rowKey, splitHarnessRowKey } from '@/lib/harness/row-key'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,48 +62,55 @@ function sessionModelUsage(session: SessionMeta): Record<string, ModelUsage> {
   return { [FALLBACK_MODEL]: { ...usage, costUSD: estimateTotalCostFromModel(FALLBACK_MODEL, usage) } }
 }
 
+/** Adds a session's usage to rows keyed by rowKey(harness, model), skipping synthetic and empty models */
+function addSessionUsage(rows: Record<string, ModelUsage>, session: SessionMeta) {
+  for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
+    const tokenTotal =
+      (usage.inputTokens ?? 0) +
+      (usage.outputTokens ?? 0) +
+      (usage.cacheReadInputTokens ?? 0) +
+      (usage.cacheCreationInputTokens ?? 0)
+    if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
+    const key = rowKey(session.harness, model)
+    addUsage(rows[key] ??= emptyUsage(), usage)
+  }
+}
+
 export async function GET(req: Request) {
   const range = parseRange(new URL(req.url).searchParams.get('range'))
   const cutoff = rangeCutoff(range)
-  const sessions = await getSessions()
+  const sessions = filterByHarness(await getSessions(), harnessesFromSearch(new URL(req.url).search))
 
   const filteredSessions = cutoff
     ? sessions.filter(s => s.start_time.slice(0, 10) >= cutoff)
     : sessions
 
+  // Keyed by rowKey(harness, model)
   const modelUsage: Record<string, ModelUsage> = {}
-  // Models of the sessions priced from the table: only those can be charged at a borrowed rate
+  // Rows of the sessions priced from the table: only those can be charged at a borrowed rate
   const estimatedModels = new Set<string>()
   let sessionsEstimated = 0
   for (const session of filteredSessions) {
     if (!session.reported_cost) {
       sessionsEstimated++
-      for (const model of Object.keys(sessionModelUsage(session))) estimatedModels.add(model)
+      for (const model of Object.keys(sessionModelUsage(session))) estimatedModels.add(rowKey(session.harness, model))
     }
   }
   for (const session of filteredSessions) {
-    for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
-      const tokenTotal =
-        (usage.inputTokens ?? 0) +
-        (usage.outputTokens ?? 0) +
-        (usage.cacheReadInputTokens ?? 0) +
-        (usage.cacheCreationInputTokens ?? 0)
-      if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
-      const existing = modelUsage[model] ?? emptyUsage()
-      addUsage(existing, usage)
-      modelUsage[model] = existing
-    }
+    addSessionUsage(modelUsage, session)
   }
 
   // ── Per-model breakdown ────────────────────────────────────────────────────
   let totalCost = 0
   let totalSavings = 0
-  const models: ModelCostBreakdown[] = Object.entries(modelUsage).map(([model, usage]) => {
+  const models: ModelCostBreakdown[] = Object.entries(modelUsage).map(([key, usage]) => {
+    const { harness, name: model } = splitHarnessRowKey(key)
     const cost = usageCost(model, usage)
     const eff = cacheEfficiency(model, usage)
     totalCost += cost
     totalSavings += eff.savedUSD
     return {
+      harness,
       model,
       input_tokens: usage.inputTokens ?? 0,
       output_tokens: usage.outputTokens ?? 0,
@@ -109,40 +119,34 @@ export async function GET(req: Request) {
       estimated_cost: cost,
       cache_savings: eff.savedUSD ?? 0,
       cache_hit_rate: eff.hitRate ?? 0,
-      ...(estimatedModels.has(model) && !hasKnownPricing(model) ? { priced_as: pricedAs(model) } : {}),
+      ...(estimatedModels.has(key) && !hasKnownPricing(model) ? { priced_as: pricedAs(model) } : {}),
     }
   }).sort((a, b) => b.estimated_cost - a.estimated_cost)
 
-  // ── Daily cost by model ────────────────────────────────────────────────────
+  // ── Daily cost by model and by harness ────────────────────────────────────
+  // Keyed by rowKey(harness, model)
   const dailyUsage = new Map<string, Record<string, ModelUsage>>()
   for (const session of filteredSessions) {
     const date = session.start_time.slice(0, 10)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
     const day = dailyUsage.get(date) ?? {}
-    for (const [model, usage] of Object.entries(sessionModelUsage(session))) {
-      const tokenTotal =
-        (usage.inputTokens ?? 0) +
-        (usage.outputTokens ?? 0) +
-        (usage.cacheReadInputTokens ?? 0) +
-        (usage.cacheCreationInputTokens ?? 0)
-      if (model === '<synthetic>' || (tokenTotal === 0 && !(usage.costUSD > 0))) continue
-      const existing = day[model] ?? emptyUsage()
-      addUsage(existing, usage)
-      day[model] = existing
-    }
+    addSessionUsage(day, session)
     dailyUsage.set(date, day)
   }
 
   const daily: DailyCost[] = [...dailyUsage.entries()]
-    .map(([date, usageByModel]) => {
+    .map(([date, usageByRow]) => {
       const costs: Record<string, number> = {}
+      const by_harness: Partial<Record<Harness, number>> = {}
       let dayTotal = 0
-      for (const [model, usage] of Object.entries(usageByModel)) {
+      for (const [key, usage] of Object.entries(usageByRow)) {
+        const { harness, name: model } = splitHarnessRowKey(key)
         const cost = usageCost(model, usage)
-        costs[model] = cost
+        costs[model] = (costs[model] ?? 0) + cost
+        by_harness[harness] = (by_harness[harness] ?? 0) + cost
         dayTotal += cost
       }
-      return { date, costs, total: dayTotal }
+      return { date, costs, total: dayTotal, by_harness }
     })
     .sort((a, b) => a.date.localeCompare(b.date))
 
@@ -189,6 +193,8 @@ export async function GET(req: Request) {
     models,
     daily,
     by_project,
+    harnesses: [...new Set(filteredSessions.map(s => s.harness))],
+    ...(filteredSessions.some(s => s.copilot) ? { copilot_premium_requests: filteredSessions.reduce((n, s) => n + (s.copilot?.premium_requests ?? 0), 0) } : {}),
   }
   return NextResponse.json(result)
 }

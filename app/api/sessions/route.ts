@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getAllSessionRecords, type ParsedSession } from '@/lib/claude-reader'
+import { getAllSessionRecords } from '@/lib/harness/session-store'
+import type { ParsedSession } from '@/lib/harness/types'
+import { harnessesFromSearch, matchesHarness } from '@/lib/harness-filter'
 import { sessionCost } from '@/lib/pricing'
 import { sliceSession, summarizeRange } from '@/lib/session-ledger'
 import { windowFromSearch } from '@/lib/time-window'
@@ -25,9 +27,11 @@ function toSessionWithFacet(p: ParsedSession): SessionWithFacet {
  * GET /api/sessions            → every session
  * GET /api/sessions?from&to    → sessions overlapping [from, to] (ISO or ms),
  *                                each with a `slice` of the turns inside it
+ * GET /api/sessions?h=codex     → only the listed harnesses' sessions
  */
 export async function GET(req: NextRequest) {
-  const records = await getAllSessionRecords()
+  const hf = harnessesFromSearch(req.nextUrl.search)
+  const records = (await getAllSessionRecords()).filter(r => matchesHarness(r.session, hf))
   const window = windowFromSearch(req.nextUrl.search)
 
   if (!window) {

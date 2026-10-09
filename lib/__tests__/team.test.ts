@@ -202,3 +202,61 @@ describe('getTeamAnalytics adoption and MCP inventory', () => {
     expect(t.mcp_servers[0].server).toBe('linear') // most-used first
   })
 })
+
+describe('harness in team exports', () => {
+  let dir: string
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-team-harness-'))
+    // A pre-1.1.0 export: no harness anywhere
+    const legacySession: Partial<SessionMeta> = redactSession(makeSession({ session_id: 'dan-s1' }), 'metrics')
+    delete legacySession.harness
+    const dan = {
+      kind: 'cclens-team-export', version: '1.0.0', exportedAt: '2026-06-10T00:00:00.000Z',
+      member: { name: 'Dan' }, redaction: 'metrics', cc_versions: ['2.1.62'], sessions: [legacySession],
+    }
+    const erin: TeamExportPayload = {
+      kind: 'cclens-team-export', version: '1.1.0', exportedAt: '2026-06-10T00:00:00.000Z',
+      member: { name: 'Erin' }, redaction: 'metrics', cc_versions: ['0.9.0', '2.1.62'],
+      harnesses: ['claude', 'codex'],
+      versions_by_harness: { claude: ['2.1.62'], codex: ['0.9.0'] },
+      sessions: [
+        redactSession(makeSession({ session_id: 'erin-s1' }), 'metrics'),
+        redactSession(makeSession({ session_id: 'erin-s2', harness: 'codex' }), 'metrics'),
+      ],
+    }
+    await fs.writeFile(path.join(dir, 'dan.json'), JSON.stringify(dan))
+    await fs.writeFile(path.join(dir, 'erin.json'), JSON.stringify(erin))
+  })
+
+  afterAll(async () => {
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it('reads a 1.0.0 export as Claude sessions', async () => {
+    const t = await getTeamAnalytics(dir)
+    expect(t.members.find(m => m.member.name === 'Dan')!.by_harness).toEqual({ claude: 1 })
+  })
+
+  it('counts each member\'s sessions per harness', async () => {
+    const t = await getTeamAnalytics(dir)
+    expect(t.members.find(m => m.member.name === 'Erin')!.by_harness).toEqual({ claude: 1, codex: 1 })
+  })
+
+  it('keys version skew by harness', async () => {
+    const t = await getTeamAnalytics(dir)
+    expect(t.version_skew).toEqual([
+      { harness: 'claude', version: '2.1.62', members: ['Dan', 'Erin'] },
+      { harness: 'codex', version: '0.9.0', members: ['Erin'] },
+    ])
+  })
+})
+
+describe('redactSession harness fields', () => {
+  it('keeps the harness and the Copilot cost at both levels', () => {
+    const session = makeSession({ harness: 'copilot', copilot: { aiu: 1.5, premium_requests: 3 } })
+    for (const level of ['metrics', 'titles'] as const) {
+      expect(redactSession(session, level)).toMatchObject({ harness: 'copilot', copilot: { aiu: 1.5, premium_requests: 3 } })
+    }
+  })
+})

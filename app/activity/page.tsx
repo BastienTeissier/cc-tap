@@ -1,6 +1,7 @@
 'use client'
 
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import { ActivityHeatmap } from '@/components/overview/activity-heatmap'
 import { PeakHoursChart } from '@/components/overview/peak-hours-chart'
@@ -57,7 +58,8 @@ function StatTile({
 }
 
 export default function ActivityPage() {
-  const { data, error, isLoading } = useSWR<ActivityData>('/api/activity', fetcher, { refreshInterval: 5_000 })
+  const { apiQuery } = useHarnessFilter()
+  const { data, error, isLoading } = useSWR<ActivityData>(apiQuery('/api/activity'), fetcher, { refreshInterval: 5_000 })
 
   const hourCounts = data
     ? Object.fromEntries(data.hour_counts.map(h => [String(h.hour), h.count]))

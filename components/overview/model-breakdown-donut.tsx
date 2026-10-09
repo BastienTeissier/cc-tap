@@ -11,8 +11,10 @@ import {
 import type { ModelUsage } from '@/types/claude'
 import { formatTokens } from '@/lib/decode'
 import { modelLabel } from '@/lib/model-label'
+import { splitHarnessRowKey } from '@/lib/harness/row-key'
 
 interface Props {
+  /** Keyed by harnessRowKey(harness, model) */
   modelUsage: Record<string, ModelUsage>
 }
 
@@ -51,10 +53,13 @@ function CustomTooltip({ active, payload }: any) {
 
 export function ModelBreakdownDonut({ modelUsage }: Props) {
   const data = Object.entries(modelUsage)
-    .map(([model, usage]) => ({
-      name: shortModelName(model),
-      value: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0),
-    }))
+    .map(([key, usage]) => {
+      const { harness, name: model } = splitHarnessRowKey(key)
+      return {
+        name: harness === 'claude' ? shortModelName(model) : `${harness}: ${shortModelName(model)}`,
+        value: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0),
+      }
+    })
     .filter(d => d.value > 0)
     .sort((a, b) => b.value - a.value)
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAllParsedSessions } from '@/lib/claude-reader'
+import { getAllParsedSessions } from '@/lib/harness/session-store'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { getTeamAnalytics } from '@/lib/team-reader'
 import { buildInsightsReport } from '@/lib/insights'
 import { sessionCost } from '@/lib/pricing'
@@ -73,7 +74,7 @@ export async function GET(req: Request) {
     return NextResponse.json(response)
   }
 
-  const sessions = await getAllParsedSessions()
+  const sessions = filterByHarness(await getAllParsedSessions(), harnessesFromSearch(url.search))
   const inWindow = sessions.filter(s => s.start_time && s.start_time.slice(0, 10) >= since)
   const inPrev = sessions.filter(s => {
     if (!s.start_time) return false

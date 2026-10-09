@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAllSessionRecords } from '@/lib/claude-reader'
+import { getAllSessionRecords } from '@/lib/harness/session-store'
+import { harnessesFromSearch, matchesHarness } from '@/lib/harness-filter'
 import type { UsageWindow } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
@@ -12,8 +13,9 @@ const FIVE_HOURS_MS = 5 * 60 * 60 * 1000
  * `quotaLimits` records the transcripts keep on rate-limited assistant
  * lines. The start is inferred as reset − 5h.
  */
-export async function GET() {
-  const records = await getAllSessionRecords()
+export async function GET(req: Request) {
+  const hf = harnessesFromSearch(new URL(req.url).search)
+  const records = (await getAllSessionRecords()).filter(r => matchesHarness(r.session, hf))
   const byReset = new Map<number, { firstHitAt: number; sessions: Set<string> }>()
 
   for (const r of records) {

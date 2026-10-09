@@ -16,3 +16,9 @@ export function adapterFor(h: Harness): HarnessAdapter | undefined {
 export function detectedHarnesses(): Harness[] {
   return adapters().map(a => a.harness)
 }
+
+/** Bytes under every detected harness's dir */
+export async function totalStorageBytes(): Promise<number> {
+  const sizes = await Promise.all(adapters().map(a => a.storageBytes()))
+  return sizes.reduce((a, b) => a + b, 0)
+}

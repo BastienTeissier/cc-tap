@@ -40,14 +40,22 @@ function printBanner() {
   console.log()
   art.forEach((line) => console.log('  ' + line))
   console.log()
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude')
   console.log(`  ${B}${O}Claude Code Lens${R} ${DIM}(cc-tap)${R}   ${DIM}—  your ~/.claude/ at a glance${R}`)
   console.log(`  ${DIM}Theodo fork of ${R}${upstream}${DIM} · originally made with ♥ by ${R}${author}`)
   console.log()
-  console.log(`  ${DIM}Config dir:${R}  ${O2}${configDir}${R}`)
-  if (process.env.CLAUDE_CONFIG_DIR) {
-    console.log(`  ${DIM}             (from CLAUDE_CONFIG_DIR)${R}`)
-  }
+  // Mirrors lib/harness/dirs.ts, which this plain-JS entry point cannot import
+  const harnessDirs = [
+    ['claude', 'CLAUDE_CONFIG_DIR', '.claude'],
+    ['codex', 'CODEX_HOME', '.codex'],
+    ['copilot', 'COPILOT_HOME', '.copilot'],
+  ]
+  harnessDirs.forEach(([name, env, fallback], i) => {
+    const dir = process.env[env] ?? path.join(os.homedir(), fallback)
+    const label = i === 0 ? `${DIM}Harnesses:${R}  ` : '            '
+    const where = fs.existsSync(dir) ? `${O2}${dir}${R}` : `${DIM}not found${R}`
+    const origin = process.env[env] ? `  ${DIM}(from ${env})${R}` : ''
+    console.log(`  ${label} ${name.padEnd(8)} ${where}${origin}`)
+  })
   console.log()
 }
 

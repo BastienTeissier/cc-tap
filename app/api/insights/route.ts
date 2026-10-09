@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAllParsedSessions } from '@/lib/claude-reader'
+import { getAllParsedSessions } from '@/lib/harness/session-store'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { buildInsightsReport } from '@/lib/insights'
 import { sessionCost } from '@/lib/pricing'
 import { readConfig } from '@/lib/config'
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
   const daysParam = Number(new URL(req.url).searchParams.get('days'))
   const windowDays = [7, 30, 90].includes(daysParam) ? daysParam : 30
 
-  const sessions = await getAllParsedSessions()
+  const sessions = filterByHarness(await getAllParsedSessions(), harnessesFromSearch(new URL(req.url).search))
   const report = buildInsightsReport(sessions, windowDays)
 
   const config = await readConfig()

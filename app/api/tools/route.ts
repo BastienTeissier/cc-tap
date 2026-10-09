@@ -1,16 +1,20 @@
 import { NextResponse } from 'next/server'
-import { getAllSessionRecords } from '@/lib/claude-reader'
+import { getAllSessionRecords } from '@/lib/harness/session-store'
+import { adapterFor } from '@/lib/harness/registry'
+import { harnessesFromSearch, matchesHarness } from '@/lib/harness-filter'
 import { categorizeTool, isMcpTool, parseMcpTool } from '@/lib/tool-categories'
+import { harnessRowKey as rowKey, splitHarnessRowKey } from '@/lib/harness/row-key'
 import type { ToolsAnalytics, ToolSummary, McpServerSummary, VersionRecord } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
-  const records = await getAllSessionRecords()
+export async function GET(req: Request) {
+  const hf = harnessesFromSearch(new URL(req.url).search)
+  const records = (await getAllSessionRecords()).filter(r => matchesHarness(r.session, hf))
   const sessions = records.map(r => r.session)
   const totalSessions = sessions.length
 
-  // ── Aggregate tool counts across all sessions ──────────────────────────────
+  // ── Aggregate tool counts across all sessions, keyed by rowKey(harness, name) ──
   const toolTotals = new Map<string, number>()
   const toolSessionCount = new Map<string, Set<string>>()
   const mcpServerCalls = new Map<string, Map<string, number>>()
@@ -21,9 +25,10 @@ export async function GET() {
   for (const s of sessions) {
     const sid = s.session_id
     for (const [tool, count] of Object.entries(s.tool_counts ?? {})) {
-      toolTotals.set(tool, (toolTotals.get(tool) ?? 0) + count)
-      if (!toolSessionCount.has(tool)) toolSessionCount.set(tool, new Set())
-      toolSessionCount.get(tool)!.add(sid)
+      const key = rowKey(s.harness, tool)
+      toolTotals.set(key, (toolTotals.get(key) ?? 0) + count)
+      if (!toolSessionCount.has(key)) toolSessionCount.set(key, new Set())
+      toolSessionCount.get(key)!.add(sid)
 
       if (isMcpTool(tool)) {
         const parsed = parseMcpTool(tool)
@@ -46,13 +51,17 @@ export async function GET() {
 
   // ── Build ToolSummary list ─────────────────────────────────────────────────
   const tools: ToolSummary[] = [...toolTotals.entries()]
-    .map(([name, total_calls]) => ({
-      name,
-      category: categorizeTool(name),
-      total_calls,
-      session_count: toolSessionCount.get(name)?.size ?? 0,
-      error_count: 0,
-    }))
+    .map(([key, total_calls]) => {
+      const { harness, name } = splitHarnessRowKey(key)
+      return {
+        harness,
+        name,
+        category: (adapterFor(harness)?.categorizeTool ?? categorizeTool)(name),
+        total_calls,
+        session_count: toolSessionCount.get(key)?.size ?? 0,
+        error_count: 0,
+      }
+    })
     .sort((a, b) => b.total_calls - a.total_calls)
 
   const totalToolCalls = tools.reduce((s, t) => s + t.total_calls, 0)
@@ -88,16 +97,17 @@ export async function GET() {
     feature_adoption[key] = { sessions: count, pct: totalSessions > 0 ? count / totalSessions : 0 }
   }
 
-  // ── Version + branch info ─────────────────────────────────────────────────
+  // ── Version + branch info, versions keyed by rowKey(harness, version) ──────
   const versionData = new Map<string, { sessions: Set<string>; dates: string[] }>()
   const branchTurns = new Map<string, number>()
 
   for (const { session: s, git_branches } of records) {
     if (s.cc_version) {
-      if (!versionData.has(s.cc_version)) {
-        versionData.set(s.cc_version, { sessions: new Set(), dates: [] })
+      const key = rowKey(s.harness, s.cc_version)
+      if (!versionData.has(key)) {
+        versionData.set(key, { sessions: new Set(), dates: [] })
       }
-      const vd = versionData.get(s.cc_version)!
+      const vd = versionData.get(key)!
       vd.sessions.add(s.session_id)
       vd.dates.push(s.start_time)
     }
@@ -107,9 +117,11 @@ export async function GET() {
   }
 
   const versions: VersionRecord[] = [...versionData.entries()]
-    .map(([version, data]) => {
+    .map(([key, data]) => {
+      const { harness, name: version } = splitHarnessRowKey(key)
       const sortedDates = data.dates.sort()
       return {
+        harness,
         version,
         session_count: data.sessions.size,
         first_seen: sortedDates[0] ?? '',

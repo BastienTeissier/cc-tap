@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import { ProjectCard } from '@/components/projects/project-card'
 import { ProjectTrends } from '@/components/projects/project-trends'
@@ -27,17 +28,18 @@ const SORT_OPTIONS: { k: SortKey; label: string }[] = [
 ]
 
 export default function ProjectsPage() {
+  const { apiQuery } = useHarnessFilter()
   const [trendRange, setTrendRange] = useState<TrendRange>('30d')
   const [activeTab, setActiveTab] = useState<'grid' | 'trends'>('grid')
   const { data, error, isLoading } = useSWR<{ projects: ProjectSummary[] }>(
-    '/api/projects', fetcher, { refreshInterval: 5_000 }
+    apiQuery('/api/projects'), fetcher, { refreshInterval: 5_000 }
   )
   const { data: trendsData, error: trendsError, isLoading: trendsLoading } = useSWR<{
     range_days: number
     trends: ProjectTrend[]
   }>(
     // Trends walks every session server-side; only fetch/poll while the tab is open
-    activeTab === 'trends' ? `/api/projects/trends?range=${trendRange}` : null,
+    activeTab === 'trends' ? apiQuery(`/api/projects/trends?range=${trendRange}`) : null,
     fetcher,
     { refreshInterval: 5_000 }
   )

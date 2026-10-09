@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import path from 'path'
 import { access, readFile } from 'fs/promises'
 import type { WorkflowRunDetail } from '@/types/claude'
-import { findSessionJSONL } from '@/lib/claude-reader'
+import { claudeTranscriptOr404 } from '@/app/api/sessions/[id]/claude-only'
 import { WORKFLOW_RUN_ID_RE, sessionDir, workflowRecordPath, workflowRunDir } from '@/lib/subagent-files'
 import { capJson, capText, readWorkflowJournal, readWorkflowRecord, recordPhases, recordStatus } from '@/lib/workflow-runs'
 
@@ -30,10 +30,8 @@ export async function GET(
   if (!WORKFLOW_RUN_ID_RE.test(runId)) {
     return NextResponse.json({ error: 'Invalid run id' }, { status: 400 })
   }
-  const jsonlPath = await findSessionJSONL(id)
-  if (!jsonlPath) {
-    return NextResponse.json({ error: 'Session JSONL not found' }, { status: 404 })
-  }
+  const jsonlPath = await claudeTranscriptOr404(id)
+  if (typeof jsonlPath !== 'string') return jsonlPath
 
   const runDir = workflowRunDir(jsonlPath, id, runId)
   const record = await readWorkflowRecord(workflowRecordPath(jsonlPath, id, runId))

@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useSidebar } from '@/components/layout/sidebar-context'
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
@@ -12,7 +13,9 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
         collapsed ? 'md:ml-14' : 'md:ml-56',
       ].join(' ')}
     >
-      {children}
+      {/* Pages and the top bar read ?h= through useSearchParams, which needs a
+          Suspense boundary for the static shell */}
+      <Suspense fallback={null}>{children}</Suspense>
       <footer className="border-t border-border/50 py-3 px-6 flex items-center justify-center mb-16 md:mb-0">
         <p className="text-xs text-muted-foreground">
           Made by{' '}

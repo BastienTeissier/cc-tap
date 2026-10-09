@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getSessions, readStatsCache } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { readStatsCache } from '@/lib/harness/claude/reader'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import type { DailyActivity, SessionMeta } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
@@ -92,8 +94,14 @@ function computeHourCounts(sessions: SessionMeta[]): Array<{ hour: number; count
   return hourCounts.map((count, hour) => ({ hour, count }))
 }
 
-export async function GET() {
-  const [stats, sessions] = await Promise.all([readStatsCache(), getSessions()])
+export async function GET(req: Request) {
+  const hf = harnessesFromSearch(new URL(req.url).search)
+  // stats-cache.json is Claude's own rollup, so it only counts when Claude is selected
+  const [stats, all] = await Promise.all([
+    hf && !hf.includes('claude') ? null : readStatsCache(),
+    getSessions(),
+  ])
+  const sessions = filterByHarness(all, hf)
   const dailyFromSessions = computeDailyActivityFromSessions(sessions)
   const dailyActivity = stats
     ? mergeDailyActivity(stats.dailyActivity ?? [], dailyFromSessions)

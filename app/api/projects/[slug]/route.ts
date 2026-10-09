@@ -1,64 +1,52 @@
-import path from 'path'
 import { NextResponse } from 'next/server'
-import { getSessions, listProjectJSONLFiles, readJSONLLines, resolveProjectPath } from '@/lib/claude-reader'
+import { getAllSessionRecords } from '@/lib/harness/session-store'
+import { resolveProjectPath } from '@/lib/harness/claude/reader'
+import { harnessesFromSearch, matchesHarness } from '@/lib/harness-filter'
 import { sessionCost } from '@/lib/pricing'
-import { projectDisplayName } from '@/lib/decode'
+import { pathToSlug, projectDisplayName } from '@/lib/decode'
 import type { SessionWithFacet } from '@/types/claude'
 
 export const dynamic = 'force-dynamic'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyLine = Record<string, any>
-
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
+  const hf = harnessesFromSearch(new URL(req.url).search)
   const projectPath = await resolveProjectPath(slug)
-  const allSessions = await getSessions()
-  let sessions = allSessions.filter(s => s.project_path === projectPath)
-
-  if (sessions.length === 0) {
-    const lastSegment = projectPath.split('/').filter(Boolean).pop() ?? ''
-    sessions = allSessions.filter(s =>
-      s.project_path?.endsWith('/' + lastSegment)
-    )
-  }
-
-  // Gather per-session branch data from JSONL
-  const files = await listProjectJSONLFiles(slug)
-  const branchTurns = new Map<string, number>()
-  const sessionMeta = new Map<string, { slug?: string; version?: string; has_compaction?: boolean }>()
-
-  await Promise.all(
-    files.map(async (f) => {
-      const sessionId = path.basename(f, '.jsonl')
-      const meta: { slug?: string; version?: string; has_compaction?: boolean } = {}
-
-      await readJSONLLines(f, (line: AnyLine) => {
-        if (!meta.slug && line.slug) meta.slug = line.slug
-        if (!meta.version && line.version) meta.version = line.version
-        if (line.type === 'system' && line.subtype === 'compact_boundary') meta.has_compaction = true
-        if (line.gitBranch && line.gitBranch !== 'HEAD') {
-          branchTurns.set(line.gitBranch, (branchTurns.get(line.gitBranch) ?? 0) + 1)
-        }
-      })
-
-      sessionMeta.set(sessionId, meta)
-    })
+  const records = await getAllSessionRecords()
+  // Any harness's session whose cwd encodes to this slug; Claude's recovered cwd covers
+  // slugs whose path had characters the encoding loses
+  let matched = records.filter(({ session: s }) =>
+    s.project_path === projectPath || (!!s.project_path && pathToSlug(s.project_path) === slug)
   )
 
-  const enrichedSessions: SessionWithFacet[] = sessions.map(s => {
-    const enrich = sessionMeta.get(s.session_id) ?? {}
-    return {
-      ...s,
-      estimated_cost: sessionCost(s),
-      slug: enrich.slug,
-      version: enrich.version,
-      has_compaction: enrich.has_compaction,
+  if (matched.length === 0) {
+    const lastSegment = projectPath.split('/').filter(Boolean).pop() ?? ''
+    matched = records.filter(r =>
+      r.session.project_path?.endsWith('/' + lastSegment)
+    )
+  }
+  // Filtered only once the project is resolved: a project with no session of the selected
+  // harness is empty, not whichever other project shares its last segment
+  matched = matched.filter(r => matchesHarness(r.session, hf))
+  const sessions = matched.map(r => r.session)
+
+  const branchTurns = new Map<string, number>()
+  for (const r of matched) {
+    for (const [branch, lines] of Object.entries(r.git_branches)) {
+      branchTurns.set(branch, (branchTurns.get(branch) ?? 0) + lines)
     }
-  })
+  }
+
+  const enrichedSessions: SessionWithFacet[] = sessions.map(s => ({
+    ...s,
+    estimated_cost: sessionCost(s),
+    slug: s.slug_name,
+    version: s.cc_version,
+    has_compaction: s.has_compaction,
+  }))
 
   // Aggregate tools
   const toolCounts: Record<string, number> = {}

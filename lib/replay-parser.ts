@@ -181,5 +181,5 @@ export async function parseSessionReplay(
     for (const t of turns) if (discarded.has(t.uuid)) t.discarded = true
   }
 
-  return { session_id: sessionId, slug, ai_title: aiTitle, version, git_branch: gitBranch, turns, compactions, summaries, total_cost: totalCost }
+  return { session_id: sessionId, harness: 'claude', slug, ai_title: aiTitle, version, git_branch: gitBranch, turns, compactions, summaries, total_cost: totalCost }
 }

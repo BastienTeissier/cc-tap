@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
-import { readStatsCache, getSessions, getClaudeStorageBytes } from '@/lib/claude-reader'
+import { getSessions } from '@/lib/harness/session-store'
+import { readStatsCache } from '@/lib/harness/claude/reader'
+import { totalStorageBytes } from '@/lib/harness/registry'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { getPricing, usageCost } from '@/lib/pricing'
 import type { DailyActivity, ModelUsage, SessionMeta } from '@/types/claude'
 
@@ -73,12 +76,15 @@ function mergeModelUsage(
   return { ...fromStats, ...fromSessions }
 }
 
-export async function GET() {
-  const [stats, sessions, storageBytes] = await Promise.all([
-    readStatsCache(),
+export async function GET(req: Request) {
+  const hf = harnessesFromSearch(new URL(req.url).search)
+  // stats-cache.json is Claude's own rollup, so it only counts when Claude is selected
+  const [stats, all, storageBytes] = await Promise.all([
+    hf && !hf.includes('claude') ? null : readStatsCache(),
     getSessions(),
-    getClaudeStorageBytes(),
+    totalStorageBytes(),
   ])
+  const sessions = filterByHarness(all, hf)
 
   const dailyFromSessions = computeDailyActivityFromSessions(sessions)
   const dailyActivity = stats

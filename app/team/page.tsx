@@ -9,6 +9,7 @@ import { formatCost, formatTokens, formatDuration, formatRelativeDate } from '@/
 import type { TeamAnalytics, TeamFeatureAdoption } from '@/types/claude'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { HarnessBadge } from '@/components/ui/harness-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -338,7 +339,7 @@ export default function TeamPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <GitBranch className="size-4" /> Claude Code version skew
+                  <GitBranch className="size-4" /> Version skew
                 </CardTitle>
                 <CardDescription>Who runs what — flag members far behind the latest</CardDescription>
               </CardHeader>
@@ -347,9 +348,11 @@ export default function TeamPage() {
                   <p className="text-sm text-muted-foreground">No version info in exports.</p>
                 ) : (
                   <div className="space-y-2">
-                    {data.version_skew.map(({ version, members }, i) => (
-                      <div key={version} className="flex items-center gap-3 text-sm">
-                        <Badge variant={i === 0 ? 'default' : 'outline'} className="font-mono tabular-nums w-20 justify-center">
+                    {/* Sorted by harness, then newest first: each harness's first row is its latest */}
+                    {data.version_skew.map(({ harness, version, members }, i, all) => (
+                      <div key={`${harness}:${version}`} className="flex items-center gap-3 text-sm">
+                        <HarnessBadge harness={harness} />
+                        <Badge variant={i === 0 || all[i - 1].harness !== harness ? 'default' : 'outline'} className="font-mono tabular-nums w-20 justify-center">
                           {version}
                         </Badge>
                         <span className="text-muted-foreground">{members.join(', ')}</span>

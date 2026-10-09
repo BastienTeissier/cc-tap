@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { formatCost } from '@/lib/decode'
 import { modelLabel } from '@/lib/model-label'
+import { HARNESS_COLORS, HARNESS_LABELS, isHarness } from '@/types/harness'
 import type { DailyCost } from '@/types/claude'
 
 const MODEL_COLORS: Record<string, string> = {
@@ -45,21 +46,31 @@ export type CostWindow = 30 | 90 | 'all'
 type Window = CostWindow
 
 export function CostOverTimeChart({ daily, window, onWindowChange }: Props) {
-  const { data, models } = useMemo(() => {
+  // One series per model; per harness instead once the range mixes harnesses
+  const { data, series, byHarness } = useMemo(() => {
     const sorted = [...daily].sort((a, b) => a.date.localeCompare(b.date))
     const sliced = sorted
-    const modelSet = new Set<string>()
-    for (const d of sliced) Object.keys(d.costs ?? {}).forEach(m => modelSet.add(m))
-    const models = [...modelSet]
+    const harnessSet = new Set<string>()
+    for (const d of sliced) Object.keys(d.by_harness ?? {}).forEach(h => harnessSet.add(h))
+    const byHarness = harnessSet.size > 1
+    const keySet = new Set<string>()
+    for (const d of sliced) Object.keys((byHarness ? d.by_harness : d.costs) ?? {}).forEach(k => keySet.add(k))
+    const series = [...keySet]
     return {
-      data: sliced.map(d => ({
-        date: d.date.slice(5), // MM-DD
-        ...Object.fromEntries(models.map(m => [m, d.costs[m] ?? 0])),
-        total: d.total,
-      })),
-      models,
+      data: sliced.map(d => {
+        const values: Record<string, number | undefined> = byHarness ? d.by_harness : d.costs
+        return {
+          date: d.date.slice(5), // MM-DD
+          ...Object.fromEntries(series.map(k => [k, values[k] ?? 0])),
+          total: d.total,
+        }
+      }),
+      series,
+      byHarness,
     }
   }, [daily])
+  const colorFor = (k: string) => (byHarness && isHarness(k) ? HARNESS_COLORS[k] : colorForModel(k))
+  const labelFor = (k: string) => (byHarness && isHarness(k) ? HARNESS_LABELS[k] : shortModel(k))
 
   return (
     <div>
@@ -84,16 +95,16 @@ export function CostOverTimeChart({ daily, window, onWindowChange }: Props) {
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} tickFormatter={v => `$${v.toFixed(2)}`} width={48} />
           <Tooltip
             contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}
-            formatter={(val: number | undefined, name?: string) => [formatCost(val ?? 0), shortModel(name ?? '')]}
+            formatter={(val: number | undefined, name?: string) => [formatCost(val ?? 0), labelFor(name ?? '')]}
           />
-          {models.map(m => (
+          {series.map(k => (
             <Area
-              key={m}
+              key={k}
               type="monotone"
-              dataKey={m}
+              dataKey={k}
               stackId="1"
-              stroke={colorForModel(m)}
-              fill={colorForModel(m) + '30'}
+              stroke={colorFor(k)}
+              fill={colorFor(k) + '30'}
               strokeWidth={1.5}
             />
           ))}

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
+import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { TopBar } from '@/components/layout/top-bar'
 import { CostOverTimeChart, type CostWindow } from '@/components/costs/cost-over-time-chart'
 import { CostByProjectChart } from '@/components/costs/cost-by-project-chart'
@@ -22,10 +23,11 @@ const fetcher = (url: string) =>
   fetch(url).then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })
 
 export default function CostsPage() {
+  const { apiQuery } = useHarnessFilter()
   const [costWindow, setCostWindow] = useState<CostWindow>(90)
   const rangeKey = costWindow === 'all' ? 'all' : `${costWindow}d`
   const rangeLabel = costWindow === 'all' ? 'All time' : `Last ${costWindow} days`
-  const { data, error, isLoading } = useSWR<CostAnalytics>(`/api/costs?range=${rangeKey}`, fetcher, { refreshInterval: 5_000 })
+  const { data, error, isLoading } = useSWR<CostAnalytics>(apiQuery(`/api/costs?range=${rangeKey}`), fetcher, { refreshInterval: 5_000 })
 
   return (
     <div className="flex flex-col min-h-screen">

@@ -13,7 +13,8 @@
  */
 import { stat } from 'fs/promises'
 import { gzipSync } from 'zlib'
-import { parseSessionReplay } from '@/lib/replay-parser'
+import { adapterFor } from '@/lib/harness/registry'
+import type { SessionFileEntry } from '@/lib/harness/types'
 import pkg from '../package.json'
 
 /** Sessions held at once. A long one costs 12 MB parsed plus its bytes; three
@@ -38,14 +39,16 @@ const cache = new Map<string, CachedReplay>()
  * without the latter a finished session would answer 304 to a newer cc-tap
  * and hand it the shape, and the prices, of the old one.
  */
-export async function replayEtag(jsonlPath: string): Promise<string> {
-  const { size, mtimeMs } = await stat(jsonlPath)
-  return `"${pkg.version}-${size.toString(36)}-${Math.trunc(mtimeMs).toString(36)}"`
+export async function replayEtag(entry: SessionFileEntry): Promise<string> {
+  // The entry's mtime, not the file's: a harness whose session spans files reports the newest
+  const { size } = await stat(entry.path)
+  return `"${pkg.version}-${size.toString(36)}-${Math.trunc(entry.mtimeMs).toString(36)}"`
 }
 
-/** The parsed replay of `jsonlPath`, parsed only when its version changed */
-export async function cachedReplay(jsonlPath: string, sessionId: string): Promise<CachedReplay> {
-  const etag = await replayEtag(jsonlPath)
+/** The parsed replay of a session file, parsed by its harness only when its version changed */
+export async function cachedReplay(entry: SessionFileEntry): Promise<CachedReplay> {
+  const sessionId = entry.session_id
+  const etag = await replayEtag(entry)
   const held = cache.get(sessionId)
   if (held?.etag === etag) {
     // Keep it: a Map preserves insertion order, so re-inserting makes it newest
@@ -54,15 +57,17 @@ export async function cachedReplay(jsonlPath: string, sessionId: string): Promis
     return held
   }
 
-  const replay = await parseSessionReplay(jsonlPath, sessionId)
-  const entry: CachedReplay = { etag, json: Buffer.from(JSON.stringify(replay)) }
-  cache.set(sessionId, entry)
+  const adapter = adapterFor(entry.harness)
+  if (!adapter) throw new Error(`no reader for ${entry.harness} sessions`)
+  const replay = await adapter.parseReplay(entry)
+  const made: CachedReplay = { etag, json: Buffer.from(JSON.stringify(replay)) }
+  cache.set(sessionId, made)
   while (cache.size > MAX_SESSIONS) {
     const oldest = cache.keys().next().value
     if (oldest === undefined) break
     cache.delete(oldest)
   }
-  return entry
+  return made
 }
 
 /** The compressed bytes of an entry, made once per version */

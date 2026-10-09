@@ -9,7 +9,8 @@ interface Props {
 }
 
 export function ToolRankingChart({ tools }: Props) {
-  const top = tools.slice(0, 20)
+  // The axis is SVG text, so a non-Claude tool carries its harness as a prefix
+  const top = tools.slice(0, 20).map(t => ({ ...t, label: t.harness === 'claude' ? t.name : `${t.harness}: ${t.name}` }))
 
   return (
     <div>
@@ -28,7 +29,7 @@ export function ToolRankingChart({ tools }: Props) {
           />
           <YAxis
             type="category"
-            dataKey="name"
+            dataKey="label"
             tick={{ fontSize: 12, fill: 'var(--muted-foreground)' }}
             tickLine={false}
             axisLine={false}
@@ -36,9 +37,9 @@ export function ToolRankingChart({ tools }: Props) {
           />
           <Tooltip
             contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}
-            formatter={(val: number | undefined, _name?: string, props?: { payload?: { name?: string } }) => [
+            formatter={(val: number | undefined, _name?: string, props?: { payload?: { label?: string } }) => [
               (val ?? 0).toLocaleString() + ' calls',
-              props?.payload?.name ?? '',
+              props?.payload?.label ?? '',
             ]}
           />
           <Bar dataKey="total_calls" radius={[0, 3, 3, 0]}>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAllParsedSessions } from '@/lib/claude-reader'
+import { getAllParsedSessions } from '@/lib/harness/session-store'
+import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import { sessionCost } from '@/lib/pricing'
 import { projectDisplayName } from '@/lib/decode'
 
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
   const yearParam = Number(new URL(req.url).searchParams.get('year'))
   const year = yearParam >= 2020 && yearParam <= 2100 ? yearParam : new Date().getFullYear()
 
-  const sessions = (await getAllParsedSessions()).filter(
+  const sessions = filterByHarness(await getAllParsedSessions(), harnessesFromSearch(new URL(req.url).search)).filter(
     s => s.start_time && s.start_time.startsWith(String(year))
   )
 

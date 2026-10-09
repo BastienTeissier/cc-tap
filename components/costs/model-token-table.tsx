@@ -1,5 +1,6 @@
 import { formatTokens, formatCost } from '@/lib/decode'
 import { modelShortId } from '@/lib/model-label'
+import { HarnessBadge } from '@/components/ui/harness-badge'
 import type { ModelCostBreakdown } from '@/types/claude'
 
 function shortModel(m: string): string {
@@ -19,13 +20,15 @@ export function ModelTokenTable({ models }: Props) {
     cost: acc.cost + m.estimated_cost,
   }), { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0 })
 
+  const columns = ['Harness', 'Model', 'Input', 'Output', 'Cache W', 'Cache R', 'Cost']
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[13px] font-mono">
         <thead>
           <tr className="border-b border-border">
-            {['Model', 'Input', 'Output', 'Cache W', 'Cache R', 'Cost'].map(h => (
-              <th key={h} className={`py-2 text-[12px] font-bold text-muted-foreground uppercase tracking-wider ${h === 'Model' ? 'text-left' : 'text-right'}`}>
+            {columns.map(h => (
+              <th key={h} className={`py-2 text-[12px] font-bold text-muted-foreground uppercase tracking-wider ${h === 'Model' || h === 'Harness' ? 'text-left' : 'text-right'}`}>
                 {h}
               </th>
             ))}
@@ -33,7 +36,8 @@ export function ModelTokenTable({ models }: Props) {
         </thead>
         <tbody>
           {models.map(m => (
-            <tr key={m.model} className="border-b border-border/30 hover:bg-muted/50 transition-colors">
+            <tr key={`${m.harness}:${m.model}`} className="border-b border-border/30 hover:bg-muted/50 transition-colors">
+              <td className="py-2"><HarnessBadge harness={m.harness} /></td>
               <td className="py-2 text-foreground/80">
                 {shortModel(m.model)}
                 {m.priced_as && (
@@ -50,7 +54,7 @@ export function ModelTokenTable({ models }: Props) {
             </tr>
           ))}
           <tr className="border-t border-border font-bold">
-            <td className="py-2 text-muted-foreground">TOTAL</td>
+            <td className="py-2 text-muted-foreground" colSpan={2}>TOTAL</td>
             <td className="py-2 text-right text-blue-700 dark:text-[#60a5fa]">{formatTokens(totals.input)}</td>
             <td className="py-2 text-right text-[#d97706]">{formatTokens(totals.output)}</td>
             <td className="py-2 text-right text-[#a78bfa]">{formatTokens(totals.cacheWrite)}</td>

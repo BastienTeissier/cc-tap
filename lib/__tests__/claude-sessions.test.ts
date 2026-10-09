@@ -5,10 +5,10 @@ import path from 'path'
 import { FALLBACK_MODEL, agentsCost, sessionCost } from '@/lib/pricing'
 import { sliceSession } from '@/lib/session-ledger'
 
-// Fixture-driven test against a fake ~/.claude dir. The reader caches what it
+// Fixture-driven test against a fake ~/.claude dir. The store caches what it
 // reads per module instance, so it is imported fresh after env setup.
 let tmpDir: string
-let reader: typeof import('@/lib/claude-reader')
+let store: typeof import('@/lib/harness/session-store')
 let previousClaudeConfigDir: string | undefined
 let previousCodexHome: string | undefined
 let previousCopilotHome: string | undefined
@@ -108,7 +108,7 @@ beforeAll(async () => {
   previousCopilotHome = process.env.COPILOT_HOME
   process.env.COPILOT_HOME = path.join(tmpDir, 'no-copilot')
   vi.resetModules()
-  reader = await import('@/lib/claude-reader')
+  store = await import('@/lib/harness/session-store')
 })
 
 afterAll(async () => {
@@ -124,7 +124,7 @@ afterAll(async () => {
 
 describe('getAllSessionRecords', () => {
   it('publishes exactly the ledger summed over the whole session', async () => {
-    const records = await reader.getAllSessionRecords()
+    const records = await store.getAllSessionRecords()
     expect(records).toHaveLength(3)
     for (const r of records) {
       const s = r.session
@@ -145,7 +145,7 @@ describe('getAllSessionRecords', () => {
   })
 
   it('keeps the ledger and rate-limit hits off the public session', async () => {
-    const [r] = await reader.getAllSessionRecords()
+    const [r] = await store.getAllSessionRecords()
     expect('ledger' in r.session).toBe(false)
     expect('rate_limit_hits' in r.session).toBe(false)
   })
@@ -153,7 +153,7 @@ describe('getAllSessionRecords', () => {
 
 describe('getAllParsedSessions', () => {
   it('parses a session JSONL into metadata', async () => {
-    const sessions = await reader.getAllParsedSessions()
+    const sessions = await store.getAllParsedSessions()
     expect(sessions).toHaveLength(3)
 
     const s = sessions[0]
@@ -182,12 +182,12 @@ describe('getAllParsedSessions', () => {
   })
 
   it('strips wrapper tags from the first prompt without eating surrounding text', async () => {
-    const sessions = await reader.getAllParsedSessions()
+    const sessions = await store.getAllParsedSessions()
     expect(sessions[0].first_prompt).toBe('Hello world')
   })
 
   it('folds sub-agent transcripts into the session totals', async () => {
-    const sessions = await reader.getAllParsedSessions()
+    const sessions = await store.getAllParsedSessions()
     const s = sessions.find(x => x.session_id === AGENT_SESSION_ID)!
     expect(s).toBeDefined()
 
@@ -215,7 +215,7 @@ describe('getAllParsedSessions', () => {
   })
 
   it('keeps pricing a model-less orchestrator when agents are folded in', async () => {
-    const sessions = await reader.getAllParsedSessions()
+    const sessions = await store.getAllParsedSessions()
     const s = sessions.find(x => x.session_id === LEGACY_SESSION_ID)!
     expect(s.agent_count).toBe(1)
     expect(s.input_tokens).toBe(2040)
@@ -230,9 +230,9 @@ describe('getAllParsedSessions', () => {
   it('picks up a sub-agent transcript that grows after the first scan', async () => {
     const agentFile = path.join(tmpDir, 'projects', '-Users-test-proj', AGENT_SESSION_ID, 'subagents', 'agent-eee.jsonl')
     try {
-      const before = (await reader.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
+      const before = (await store.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
       await fs.writeFile(agentFile, assistantLine('2026-05-01T10:05:00.000Z', 'claude-sonnet-4-5', { input_tokens: 100, output_tokens: 0 }))
-      const grown = (await reader.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
+      const grown = (await store.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
       expect(grown.input_tokens).toBe(before.input_tokens + 100)
       expect(grown.agent_count).toBe(before.agent_count! + 1)
 
@@ -240,7 +240,7 @@ describe('getAllParsedSessions', () => {
       // Ensure a distinct mtime even on coarse filesystems
       const later = new Date(Date.now() + 5000)
       await fs.utimes(agentFile, later, later)
-      const after = (await reader.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
+      const after = (await store.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
       expect(after.input_tokens).toBe(before.input_tokens + 200)
     } finally {
       await fs.rm(agentFile, { force: true })
@@ -253,10 +253,10 @@ describe('getAllParsedSessions', () => {
     const meta = path.join(dir, 'agent-0a0.meta.json')
     try {
       await fs.writeFile(jsonl, modelLessAgentLines.join('\n'))
-      const before = (await reader.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
+      const before = (await store.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
       expect(before.model_usage!['claude-opus-4-8'].inputTokens).toBe(24)
       await fs.writeFile(meta, JSON.stringify({ model: 'claude-haiku-4-5' }))
-      const after = (await reader.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
+      const after = (await store.getAllParsedSessions()).find(x => x.session_id === AGENT_SESSION_ID)!
       expect(after.model_usage!['claude-opus-4-8'].inputTokens).toBe(17)
       expect(after.model_usage!['claude-haiku-4-5'].inputTokens).toBe(14)
     } finally {
@@ -266,20 +266,9 @@ describe('getAllParsedSessions', () => {
   })
 
   it('serves repeat calls from the mtime cache', async () => {
-    const first = await reader.getAllParsedSessions()
-    const second = await reader.getAllParsedSessions()
+    const first = await store.getAllParsedSessions()
+    const second = await store.getAllParsedSessions()
     expect(second).toHaveLength(first.length)
     expect(second[0].session_id).toBe(first[0].session_id)
-  })
-})
-
-describe('findSessionJSONL', () => {
-  it('locates the file for a session id', async () => {
-    const file = await reader.findSessionJSONL(SESSION_ID)
-    expect(file).toContain(`${SESSION_ID}.jsonl`)
-  })
-
-  it('returns null for unknown ids', async () => {
-    expect(await reader.findSessionJSONL('does-not-exist')).toBeNull()
   })
 })

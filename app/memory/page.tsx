@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import useSWR, { mutate } from 'swr'
 import { TopBar } from '@/components/layout/top-bar'
-import type { MemoryEntry, MemoryType } from '@/lib/claude-reader'
+import type { MemoryEntry, MemoryType } from '@/lib/harness/claude/reader'
 import { projectDisplayName, projectShortPath, formatRelativeDate } from '@/lib/decode'
 
 const fetcher = (url: string) =>

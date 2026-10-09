@@ -109,12 +109,6 @@ describe('session store', () => {
   it('finds no file for an unknown session id', async () => {
     expect(await store.findSessionEntry('does-not-exist')).toBeNull()
   })
-
-  it('keeps the old reader module working as a re-export', async () => {
-    const reader = await import('@/lib/claude-reader')
-    expect((await reader.getSessions()).map(s => s.session_id)).toEqual([SESSION_ID, OTHER_ID])
-    expect(await reader.findSessionJSONL(SESSION_ID)).toContain(`${SESSION_ID}.jsonl`)
-  })
 })
 
 describe('aggregate routes', () => {

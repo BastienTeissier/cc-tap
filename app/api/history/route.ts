@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { readHistory } from '@/lib/claude-reader'
+import { readHistory } from '@/lib/harness/claude/reader'
 
 export const dynamic = 'force-dynamic'
 

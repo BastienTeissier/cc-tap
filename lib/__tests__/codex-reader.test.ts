@@ -115,4 +115,17 @@ describe('codex reader edge cases', () => {
     ].join('\n'))
     expect(await parseCodexSession(file, A)).toBeNull()
   })
+
+  it('records no turn or rate limit hit for a token count with a bad timestamp', async () => {
+    const file = path.join(dir, 'bad-ts.jsonl')
+    const usage = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, total_tokens: 15 }
+    await fs.writeFile(file, [
+      JSON.stringify({ timestamp: '2026-10-01T10:00:00.000Z', type: 'session_meta', payload: { id: A, cwd: '/x' } }),
+      JSON.stringify({ timestamp: 'not a date', type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage, last_token_usage: usage }, rate_limits: { primary: { used_percent: 100, resets_at: 1790000000 } } } }),
+    ].join('\n'))
+    const record = (await parseCodexSession(file, A))!
+    expect(record.ledger.ts).toHaveLength(0)
+    expect(record.rate_limit_hits).toEqual([])
+    expect(record.session.last_activity).toBe('2026-10-01T10:00:00.000Z')
+  })
 })

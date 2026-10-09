@@ -129,7 +129,8 @@ export async function parseCodexSession(filePath: string, sessionId: string): Pr
   await readJSONLLines(filePath, (raw) => {
     const line = raw as RolloutLine
     const p = line.payload
-    const ts = typeof line.timestamp === 'string' ? line.timestamp : ''
+    // A timestamp that does not parse is treated as missing
+    const ts = typeof line.timestamp === 'string' && Number.isFinite(Date.parse(line.timestamp)) ? line.timestamp : ''
     lineCount++
     if (ts) {
       if (!startTime) startTime = ts
@@ -169,18 +170,20 @@ export async function parseCodexSession(filePath: string, sessionId: string): Pr
       }
       if (p?.type === 'reasoning') hasThinking = true
     } else if (line.type === 'event_msg' && p?.type === 'token_count') {
+      const at = Date.parse(ts)
       const primary = p.rate_limits?.primary
-      if (typeof primary?.used_percent === 'number' && primary.used_percent >= 100 && typeof primary.resets_at === 'number' && ts) {
+      if (typeof primary?.used_percent === 'number' && primary.used_percent >= 100 && typeof primary.resets_at === 'number' && Number.isFinite(at)) {
         const resetsAt = primary.resets_at * 1000
         if (!rateLimitResets.has(resetsAt)) {
           rateLimitResets.add(resetsAt)
-          rateLimitHits.push({ ts: new Date(ts).getTime(), resets_at: resetsAt })
+          rateLimitHits.push({ ts: at, resets_at: resetsAt })
         }
       }
       const usage = newTokenUsage(p, seen)
-      if (usage && ts) {
-        // The response's items come before its token_count: its tool calls are the pending ones
-        ledger.addTurn({ ts: new Date(ts).getTime(), model, ...turnTokens(usage), toolCalls: pendingToolCalls })
+      if (usage) {
+        // The response's items come before its token_count: its tool calls are the pending ones.
+        // addTurn drops a turn with no usable time.
+        ledger.addTurn({ ts: at, model, ...turnTokens(usage), toolCalls: pendingToolCalls })
         pendingToolCalls = 0
       }
     }

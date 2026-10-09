@@ -317,6 +317,19 @@ describe('Copilot AI units', () => {
     }
   })
 
+  it('falls back to $0.01 on an invalid rate, warning once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await withPricingFile({ 'copilot.aiu_usd': 'x' }, (p) => {
+        expect(p.copilotCostUSD(2e9)).toBeCloseTo(0.02)
+        expect(p.copilotCostUSD(1e9)).toBeCloseTo(0.01)
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('leaves Copilot to the token table when the rate is null', async () => {
     await withPricingFile({ 'copilot.aiu_usd': null }, (p) => {
       expect(p.aiuRate()).toBeNull()

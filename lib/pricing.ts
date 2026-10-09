@@ -247,14 +247,18 @@ const AIU_USD_KEY = 'copilot.aiu_usd'
 
 /** USD per Copilot AI unit: pricing.json's "copilot.aiu_usd" when set (a number,
  *  or null to price Copilot from the token table instead), else AIU_USD */
+let rate: number | null | undefined
 export function aiuRate(): number | null {
+  if (rate !== undefined) return rate
   const file = readPricingFile()
-  if (!(AIU_USD_KEY in file)) return AIU_USD
   const v = file[AIU_USD_KEY]
-  if (v === null) return null
-  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return v
-  console.warn(`[cc-lens] pricing.json: ignoring invalid "${AIU_USD_KEY}"`)
-  return AIU_USD
+  if (!(AIU_USD_KEY in file)) rate = AIU_USD
+  else if (v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0)) rate = v
+  else {
+    console.warn(`[cc-lens] pricing.json: ignoring invalid "${AIU_USD_KEY}"`)
+    rate = AIU_USD
+  }
+  return rate
 }
 
 /** What `nanoAiu` cost in USD, or null when Copilot is priced from the token table */

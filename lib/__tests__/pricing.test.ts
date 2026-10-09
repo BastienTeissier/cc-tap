@@ -268,3 +268,72 @@ describe('pricingNote', () => {
     expect(pricingNote('')).toEqual({ label: 'unpriced', text: 'unpriced, counted as $0' })
   })
 })
+
+/** A fresh pricing module reading `file` as ~/.cc-lens/pricing.json */
+async function withPricingFile<T>(file: unknown, run: (p: typeof import('@/lib/pricing')) => T): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-pricing-'))
+  await fs.writeFile(path.join(dir, 'pricing.json'), JSON.stringify(file))
+  const previous = process.env.CC_LENS_CONFIG_DIR
+  process.env.CC_LENS_CONFIG_DIR = dir
+  try {
+    vi.resetModules()
+    return run(await import('@/lib/pricing'))
+  } finally {
+    if (previous === undefined) delete process.env.CC_LENS_CONFIG_DIR
+    else process.env.CC_LENS_CONFIG_DIR = previous
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+}
+
+describe('Copilot AI units', () => {
+  it('prices AI units at $0.01 by default', async () => {
+    const { copilotCostUSD } = await import('@/lib/pricing')
+    expect(copilotCostUSD(21_278_710_000)).toBeCloseTo(0.2127871)
+  })
+
+  it('takes the rate from pricing.json, without reading it as a model', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await withPricingFile({ 'copilot.aiu_usd': 0.02 }, (p) => {
+        expect(p.copilotCostUSD(2e9)).toBeCloseTo(0.04)
+        expect(p.getPricing('gpt-5.5').input).toBeGreaterThan(0)
+      })
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('ignores a pricing.json that is not an object', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await withPricingFile(null, (p) => {
+        expect(p.copilotCostUSD(2e9)).toBeCloseTo(0.02)
+        expect(p.getPricing('gpt-5.5').input).toBeGreaterThan(0)
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('falls back to $0.01 on an invalid rate, warning once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await withPricingFile({ 'copilot.aiu_usd': 'x' }, (p) => {
+        expect(p.copilotCostUSD(2e9)).toBeCloseTo(0.02)
+        expect(p.copilotCostUSD(1e9)).toBeCloseTo(0.01)
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('leaves Copilot to the token table when the rate is null', async () => {
+    await withPricingFile({ 'copilot.aiu_usd': null }, (p) => {
+      expect(p.aiuRate()).toBeNull()
+      expect(p.copilotCostUSD(2e9)).toBeNull()
+    })
+  })
+})

@@ -5,6 +5,8 @@ import { LedgerBuilder, NO_MODEL, ledgerMetrics } from '@/lib/session-ledger'
 import { readJSONLLines } from '@/lib/jsonl'
 import { pathToSlug } from '@/lib/decode'
 import { isMcpTool } from '@/lib/tool-categories'
+import { copilotCostUSD } from '@/lib/pricing'
+import type { ReportedCost } from '@/types/claude'
 import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
 
 // Copilot CLI sessions (~/.copilot/session-state/<id>/): events.jsonl holds one
@@ -57,6 +59,26 @@ export function rowTokens(r: CopilotUsageRow) {
     cacheRead,
     cacheWrite,
   }
+}
+
+/** What Copilot billed for the call, or null to price it from the token table:
+ *  no AI units recorded, or Copilot priced from the token table */
+export function rowCostUSD(r: CopilotUsageRow): number | null {
+  return r.total_nano_aiu ? copilotCostUSD(r.total_nano_aiu) : null
+}
+
+/**
+ * What Copilot billed for the session, per model. Without rows the checkpoint's
+ * `nanoAiu` goes to `model`. Null when nothing was billed or Copilot is priced
+ * from the token table.
+ */
+function copilotReportedCost(rows: CopilotUsageRow[], nanoAiu: number, model: string): ReportedCost | null {
+  const total = copilotCostUSD(nanoAiu)
+  if (total === null || nanoAiu <= 0) return null
+  const by_model: Record<string, number> = {}
+  for (const r of rows) by_model[r.model] = (by_model[r.model] ?? 0) + (rowCostUSD(r) ?? 0)
+  if (!rows.length && model !== NO_MODEL) by_model[model] = total
+  return { total, by_model }
 }
 
 export async function parseCopilotSession(eventsPath: string, sessionId: string): Promise<SessionRecord | null> {
@@ -168,20 +190,23 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
       model: row?.model ?? turn?.model ?? model,
       ...t,
       toolCalls: turn?.toolCalls ?? 0,
+      billed: row ? rowCostUSD(row) ?? undefined : undefined,
     })
   }
   const agentIds = new Set<string>()
   for (const row of rows ?? []) {
     if (!row.agent_id) continue
     agentIds.add(row.agent_id)
-    ledger.addTurn({ ts: Date.parse(row.created_at), model: row.model, ...rowTokens(row), toolCalls: 0, isAgent: true })
+    ledger.addTurn({ ts: Date.parse(row.created_at), model: row.model, ...rowTokens(row), toolCalls: 0, isAgent: true, billed: rowCostUSD(row) ?? undefined })
   }
 
   const durationMinutes = (Date.parse(lastTime) - Date.parse(startTime)) / 60_000
   const built = ledger.build()
-  const m = ledgerMetrics(built, null, durationMinutes, null)
   // Without rows in the DB, the last checkpoint still carries the session's AI units
   const nanoAiu = rows?.length ? rows.reduce((sum, r) => sum + (r.total_nano_aiu ?? 0), 0) : checkpointNanoAiu
+  // Turns carry what their call billed; the total covers a session with no rows
+  const reported = copilotReportedCost(rows ?? [], nanoAiu, model)
+  const m = ledgerMetrics(built, null, durationMinutes, reported)
 
   const session: ParsedSession = {
     session_id: id,
@@ -218,7 +243,7 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
     agent_model_usage: m.agent_model_usage,
     agent_count: agentIds.size,
     copilot: { aiu: nanoAiu / 1e9, premium_requests: premiumRequests },
-    reported_cost: null,
+    reported_cost: reported,
     cwd,
     slug_name: cwd ? pathToSlug(cwd) : undefined,
     ai_title: workspace.name || undefined,

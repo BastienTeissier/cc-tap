@@ -95,11 +95,13 @@ function isValidEntry(v: unknown): v is ModelPricing {
   )
 }
 
-// Loads ~/.cc-lens/pricing.json if present. Server-side only; cached for
-// process lifetime. Values are merged into defaults, so a user can override
-// a single model or add new ones without restating the rest.
-function loadUserOverrides(): Record<string, ModelPricing> {
+// The raw ~/.cc-lens/pricing.json, {} when absent or unreadable. Server-side
+// only; read once for the process lifetime.
+let pricingFile: Record<string, unknown> | null = null
+function readPricingFile(): Record<string, unknown> {
+  if (pricingFile) return pricingFile
   if (typeof window !== 'undefined') return {}
+  pricingFile = {}
   try {
     // Use eval to keep these out of any client bundle that might import this
     // file by accident. They only run server-side.
@@ -109,22 +111,30 @@ function loadUserOverrides(): Record<string, ModelPricing> {
 
     const configDir = process.env.CC_LENS_CONFIG_DIR ?? path.join(os.homedir(), '.cc-lens')
     const file = path.join(configDir, 'pricing.json')
-    if (!fs.existsSync(file)) return {}
-
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
-    const out: Record<string, ModelPricing> = {}
-    for (const [model, entry] of Object.entries(raw)) {
-      if (isValidEntry(entry)) {
-        out[model] = entry
-      } else {
-        console.warn(`[cc-lens] pricing.json: skipping invalid entry for "${model}"`)
-      }
+    if (fs.existsSync(file)) {
+      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'))
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) pricingFile = raw as Record<string, unknown>
+      else console.warn('[cc-lens] pricing.json: ignoring it, not a JSON object')
     }
-    return out
   } catch (err) {
     console.warn('[cc-lens] failed to load pricing.json:', (err as Error).message)
-    return {}
   }
+  return pricingFile
+}
+
+// Model entries of pricing.json. Values are merged into defaults, so a user can
+// override a single model or add new ones without restating the rest.
+function loadUserOverrides(): Record<string, ModelPricing> {
+  const out: Record<string, ModelPricing> = {}
+  for (const [model, entry] of Object.entries(readPricingFile())) {
+    if (model === AIU_USD_KEY) continue
+    if (isValidEntry(entry)) {
+      out[model] = entry
+    } else {
+      console.warn(`[cc-lens] pricing.json: skipping invalid entry for "${model}"`)
+    }
+  }
+  return out
 }
 
 let cachedPricing: Record<string, Required<ModelPricing>> | null = null
@@ -226,6 +236,35 @@ export function pricingNote(pricedAs: string): { label: string; text: string } {
   return pricedAs
     ? { label: 'est.', text: `charged at ${pricedAs} rates` }
     : { label: 'unpriced', text: 'unpriced, counted as $0' }
+}
+
+// GitHub bills Copilot in AI credits, 1 credit = $0.01 (docs.github.com, "GitHub
+// Copilot billing"). Copilot CLI's AI units are those credits: a usage row's
+// token_details_json costPerBatch values add up to its total_nano_aiu, at rates
+// that come to list prices per MTok at $0.01 each.
+const AIU_USD = 0.01
+const AIU_USD_KEY = 'copilot.aiu_usd'
+
+/** USD per Copilot AI unit: pricing.json's "copilot.aiu_usd" when set (a number,
+ *  or null to price Copilot from the token table instead), else AIU_USD */
+let rate: number | null | undefined
+export function aiuRate(): number | null {
+  if (rate !== undefined) return rate
+  const file = readPricingFile()
+  const v = file[AIU_USD_KEY]
+  if (!(AIU_USD_KEY in file)) rate = AIU_USD
+  else if (v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0)) rate = v
+  else {
+    console.warn(`[cc-lens] pricing.json: ignoring invalid "${AIU_USD_KEY}"`)
+    rate = AIU_USD
+  }
+  return rate
+}
+
+/** What `nanoAiu` cost in USD, or null when Copilot is priced from the token table */
+export function copilotCostUSD(nanoAiu: number): number | null {
+  const rate = aiuRate()
+  return rate === null ? null : (nanoAiu / 1e9) * rate
 }
 
 const UNPRICED: Required<ModelPricing> = { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }

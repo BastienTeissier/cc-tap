@@ -1,32 +1,23 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import { parseWorkspaceYaml } from '@/lib/harness/copilot/reader'
 import type { SessionFileEntry, SessionRecord } from '@/lib/harness/types'
-import { COPILOT_A as A, COPILOT_B as B, COPILOT_ROWS, makeCopilotHome } from './helpers/copilot-home'
+import { sessionCost } from '@/lib/pricing'
+import { sliceSession } from '@/lib/session-ledger'
+import { COPILOT_A as A, COPILOT_B as B, COPILOT_ROWS, makeCopilotHome, withCopilotHome } from './helpers/copilot-home'
 
-let saved: string | undefined
-let root: string
+const copilot = withCopilotHome()
 let entries: SessionFileEntry[]
 let a: SessionRecord
 let b: SessionRecord
 
 beforeAll(async () => {
-  saved = process.env.COPILOT_HOME
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
-  await makeCopilotHome(root)
-  process.env.COPILOT_HOME = root
   entries = await copilotAdapter.listSessionFiles()
   a = (await copilotAdapter.parseSession(entries.find(e => e.session_id === A)!))!
   b = (await copilotAdapter.parseSession(entries.find(e => e.session_id === B)!))!
-})
-
-afterAll(async () => {
-  if (saved === undefined) delete process.env.COPILOT_HOME
-  else process.env.COPILOT_HOME = saved
-  await fs.rm(root, { recursive: true, force: true })
 })
 
 describe('copilot reader', () => {
@@ -83,7 +74,11 @@ describe('copilot reader', () => {
   it('reports AI units and premium requests, from the checkpoint when the DB has no rows', () => {
     expect(a.session.copilot).toEqual({ aiu: 3, premium_requests: 2 })
     expect(b.session.copilot).toEqual({ aiu: 0.5, premium_requests: 1 })
-    expect(a.session.reported_cost).toBeNull()
+    // Each call's AI units at $0.01: 1 AIU per row
+    expect(a.session.reported_cost?.total).toBeCloseTo(0.03)
+    expect(a.session.reported_cost?.by_model['gpt-5.5']).toBeCloseTo(0.02)
+    expect(a.session.reported_cost?.by_model['claude-haiku-4-5']).toBeCloseTo(0.01)
+    expect(b.session.reported_cost).toEqual({ total: 0.005, by_model: { 'claude-sonnet-5-5': 0.005 } })
     // Without rows the turns still count, with no tokens
     expect(b.session.assistant_message_count).toBe(1)
     expect(b.session.input_tokens).toBe(0)
@@ -120,8 +115,22 @@ describe('copilot reader', () => {
       expect(c.session.assistant_message_count).toBe(1)
       expect(c.session.output_tokens).toBe(7)
     } finally {
-      process.env.COPILOT_HOME = root
+      process.env.COPILOT_HOME = copilot.root
       await fs.rm(home, { recursive: true, force: true })
     }
+  })
+
+  it('costs the session what Copilot billed, model by model', () => {
+    expect(sessionCost(a.session)).toBeCloseTo(0.03)
+    expect(a.session.model_usage?.['gpt-5.5'].costUSD).toBeCloseTo(0.02)
+    expect(a.session.agent_model_usage?.['claude-haiku-4-5'].costUSD).toBeCloseTo(0.01)
+    expect(sessionCost(b.session)).toBeCloseTo(0.005)
+  })
+
+  it('costs a window what its calls billed', () => {
+    const w = { from: Date.parse('2026-10-02T10:00:10.000Z'), to: Date.parse('2026-10-02T10:00:20.000Z') }
+    const slice = sliceSession({ session: a.session, ledger: a.ledger }, w)!
+    expect(slice.estimated_cost).toBeCloseTo(0.01, 5)
+    expect(Object.keys(slice.model_usage)).toEqual(['gpt-5.5'])
   })
 })

@@ -27,6 +27,7 @@ export interface TurnLedger {
   cacheWrite1h: Float64Array // the part of cacheWrite that went to the 1-hour cache, priced higher
   toolCalls: Uint16Array    // tool_use blocks in that turn
   isAgent: Uint8Array       // 1 when from a sub-agent transcript
+  billed: Float64Array      // USD the harness billed for the turn, NaN when it reports none
   models: string[]
   /** orchestrator user message timestamps, ms */
   userTs: Float64Array
@@ -43,6 +44,7 @@ export class LedgerBuilder {
   private cacheWrite1h: number[] = []
   private toolCalls: number[] = []
   private isAgent: number[] = []
+  private billed: number[] = []
   private userTs: number[] = []
   private models: string[] = []
   private modelIndex = new Map<string, number>()
@@ -60,7 +62,7 @@ export class LedgerBuilder {
   /** Appends a turn (one API response) and returns its index, or -1 when it has no usable time. */
   addTurn(t: {
     ts: number; model: string; input: number; output: number
-    cacheRead: number; cacheWrite: number; cacheWrite1h?: number; toolCalls: number; isAgent?: boolean
+    cacheRead: number; cacheWrite: number; cacheWrite1h?: number; toolCalls: number; isAgent?: boolean; billed?: number
   }): number {
     if (!Number.isFinite(t.ts)) return -1
     this.ts.push(t.ts)
@@ -72,6 +74,7 @@ export class LedgerBuilder {
     this.cacheWrite1h.push(t.cacheWrite1h ?? 0)
     this.toolCalls.push(Math.min(t.toolCalls, 0xffff))
     this.isAgent.push(t.isAgent ? 1 : 0)
+    this.billed.push(t.billed ?? NaN)
     return this.ts.length - 1
   }
 
@@ -109,6 +112,7 @@ export class LedgerBuilder {
       this.cacheWrite1h.push(l.cacheWrite1h[i])
       this.toolCalls.push(l.toolCalls[i])
       this.isAgent.push(asAgent ? 1 : l.isAgent[i])
+      this.billed.push(l.billed[i])
     }
   }
 
@@ -123,6 +127,7 @@ export class LedgerBuilder {
       cacheWrite1h: Float64Array.from(this.cacheWrite1h),
       toolCalls: Uint16Array.from(this.toolCalls),
       isAgent: Uint8Array.from(this.isAgent),
+      billed: Float64Array.from(this.billed),
       models: [...this.models],
       userTs: Float64Array.from(this.userTs),
     }
@@ -202,13 +207,16 @@ function price(usage: Record<string, ModelUsage>, scale: (model: string) => numb
  * Each model's costUSD is the table's estimate, or with `reported` (the cost
  * Claude Code wrote for the whole session), that cost spread over the turns in
  * proportion to their estimate: the whole session then costs exactly what
- * Claude Code reported, and a window its share of it.
+ * Claude Code reported, and a window its share of it. A model whose turns carry
+ * what the harness billed (Copilot) costs the sum of those turns instead.
  */
 export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinutes: number, reported: ReportedCost | null = null): LedgerMetrics {
   let input = 0, output = 0, cacheRead = 0, cacheWrite = 0
   let assistantCount = 0, toolCalls = 0, agentsTokens = 0
   const modelUsage: Record<string, ModelUsage> = {}
   const agentUsage: Record<string, ModelUsage> = {}
+  const modelBilled: Record<string, number> = {}
+  const agentBilled: Record<string, number> = {}
 
   for (let i = 0; i < l.ts.length; i++) {
     const t = l.ts[i]
@@ -226,6 +234,11 @@ export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinut
     if (model !== NO_MODEL) {
       addUsage(modelUsage, model, ti, to, tr, tw, tw1h)
       if (agent) addUsage(agentUsage, model, ti, to, tr, tw, tw1h)
+      const billed = l.billed[i]
+      if (Number.isFinite(billed)) {
+        modelBilled[model] = (modelBilled[model] ?? 0) + billed
+        if (agent) agentBilled[model] = (agentBilled[model] ?? 0) + billed
+      }
     }
   }
 
@@ -242,6 +255,9 @@ export function ledgerMetrics(l: TurnLedger, w: TimeWindow | null, durationMinut
   if (reported && !calibrated && !w) {
     for (const [model, cost] of Object.entries(reported.by_model)) (modelUsage[model] ??= emptyUsage()).costUSD = cost
   }
+  // What the harness billed per turn is exact: a harness bills all of a model's turns or none
+  for (const [model, cost] of Object.entries(modelBilled)) modelUsage[model].costUSD = cost
+  for (const [model, cost] of Object.entries(agentBilled)) agentUsage[model].costUSD = cost
 
   const totals = { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite }
   return {

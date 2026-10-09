@@ -1,29 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
-import { estimateCostFromUsage } from '@/lib/pricing'
 import type { ReplayData } from '@/types/claude'
-import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, type CopilotRow } from './helpers/copilot-home'
+import { estimateCostFromUsage } from '@/lib/pricing'
+import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, withCopilotHome, type CopilotRow } from './helpers/copilot-home'
 
-let saved: string | undefined
-let root: string
+const copilot = withCopilotHome()
 let replay: ReplayData
 
 beforeAll(async () => {
-  saved = process.env.COPILOT_HOME
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
-  await makeCopilotHome(root)
-  process.env.COPILOT_HOME = root
   const entry = (await copilotAdapter.listSessionFiles()).find(e => e.session_id === A)!
   replay = await copilotAdapter.parseReplay(entry)
-})
-
-afterAll(async () => {
-  if (saved === undefined) delete process.env.COPILOT_HOME
-  else process.env.COPILOT_HOME = saved
-  await fs.rm(root, { recursive: true, force: true })
 })
 
 describe('copilot replay', () => {
@@ -38,7 +27,9 @@ describe('copilot replay', () => {
     expect(first.tool_calls?.map(c => c.name)).toEqual(['view', 'view', 'bash'])
     expect(first.tool_calls?.[2]).toMatchObject({ result: '1 test failed', is_error: true })
     expect(results.tool_results?.map(r => r.is_error)).toEqual([false, false, true])
-    expect(replay.total_cost).toBeCloseTo(estimateCostFromUsage('gpt-5.5', first.usage!) + estimateCostFromUsage('gpt-5.5', second.usage!))
+    // 1 AIU per call at $0.01
+    expect(first.estimated_cost).toBeCloseTo(0.01)
+    expect(replay.total_cost).toBeCloseTo(0.02)
   })
 })
 
@@ -61,7 +52,7 @@ async function replayOf(events: string[], rows: CopilotRow[]): Promise<ReplayDat
     const entry = (await copilotAdapter.listSessionFiles()).find(e => e.session_id === C)!
     return await copilotAdapter.parseReplay(entry)
   } finally {
-    process.env.COPILOT_HOME = root
+    process.env.COPILOT_HOME = copilot.root
     await fs.rm(home, { recursive: true, force: true })
   }
 }
@@ -95,5 +86,18 @@ describe('copilot replay edge cases', () => {
     expect(replay.turns.map(t => t.type)).toEqual(['user', 'assistant', 'user', 'assistant'])
     expect(replay.turns[2].tool_results?.map(r => r.tool_use_id)).toEqual(['k1'])
     expect(replay.turns[3]).toMatchObject({ text: 'After', usage: { output_tokens: 20 } })
+  })
+
+  it('estimates a call that billed no AI units from the token table, as the session list does', async () => {
+    const replay = await replayOf([
+      event('session.start', 0, { sessionId: C }),
+      event('user.message', 1, { content: 'Go' }),
+      event('assistant.turn_start', 2),
+      event('assistant.message', 3, { model: 'gpt-5.5', content: 'Answer' }),
+      event('assistant.turn_end', 4),
+    ], [{ ...row(42, 3), nanoAiu: 0 }])
+    const turn = replay.turns.find(t => t.type === 'assistant')!
+    expect(turn.estimated_cost).toBeCloseTo(estimateCostFromUsage('gpt-5.5', turn.usage!))
+    expect(turn.estimated_cost).toBeGreaterThan(0)
   })
 })

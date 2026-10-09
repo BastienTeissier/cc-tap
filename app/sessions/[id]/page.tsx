@@ -8,6 +8,7 @@ import { SessionSidebar } from '@/components/sessions/replay/session-sidebar'
 import { TurnList } from '@/components/sessions/replay/turn-list'
 import { SessionBadges } from '@/components/sessions/session-badges'
 import { HarnessBadge } from '@/components/ui/harness-badge'
+import { HARNESS_LABELS } from '@/types/harness'
 import { formatCost, formatTokens, formatDuration, projectDisplayName } from '@/lib/decode'
 import { agentsCost as priceAgents, pricingNote } from '@/lib/pricing'
 import { modelLabel } from '@/lib/model-label'
@@ -95,8 +96,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   // Memoised for the React Compiler: a bare call on `meta` reads as a possible
   // mutation, and the drawer callbacks below then lose their manual memoization
   const agentsCost = useMemo(() => (meta ? priceAgents(meta) : 0), [meta])
-  // Claude Code's own figure when its cost-state line covers the whole session, else the table's
-  const costSource = meta?.reported_cost ? 'Reported by Claude Code' : 'Estimated from the rate table'
+  // The harness's own figure (Claude Code's cost-state line, Copilot's AI units), else the table's
+  const costSource = meta?.reported_cost ? `Reported by ${HARNESS_LABELS[meta.harness]}` : 'Estimated from the rate table'
   const sessionAgentCount = meta?.agent_count ?? 0
   const headerCost = win ? (view?.total_cost ?? 0) : sessionTotalCost
   // Models charged at another entry's rates; a window only shows its own turns' models

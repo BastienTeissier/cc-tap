@@ -12,11 +12,6 @@ const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
   // OpenAI: the input cap of the GPT-5 family, the window Codex runs them at
   // (Codex reports 95% of it). A Codex session's own report wins over these.
   'gpt-5':           272_000,
-  'gpt-5.1':         272_000,
-  'gpt-5.2':         272_000,
-  'gpt-5.3':         272_000,
-  'gpt-5.4':         272_000,
-  'gpt-5.5':         272_000,
   'gpt-4.1':       1_047_576,
   'gpt-4o-mini':     128_000,
 }
@@ -26,10 +21,11 @@ export const FALLBACK_CONTEXT_LIMIT = 200_000
 
 export type ContextLimits = Record<string, number>
 
-/** Exact match, or the key followed by a real suffix segment — so claude-opus-5
- *  matches claude-opus, while a hypothetical claude-opusx does not. */
+/** Exact match, or the key followed by a real suffix segment or a point
+ *  release — so claude-opus-5 matches claude-opus and gpt-5.5 matches gpt-5,
+ *  while a hypothetical claude-opusx does not. */
 function matchesLimitKey(model: string, key: string): boolean {
-  return model === key || model.startsWith(`${key}-`)
+  return model === key || model.startsWith(`${key}-`) || model.startsWith(`${key}.`)
 }
 
 /** The context window of a model, in tokens: the window the session itself

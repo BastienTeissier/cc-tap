@@ -25,6 +25,8 @@ describe('contextLimit', () => {
     expect(contextLimit('claude-opus-5', T, 258_400)).toBe(258_400)
     expect(contextLimit('gpt-5.5', T)).toBe(272_000)
     expect(contextLimit('gpt-5.3-codex', T)).toBe(272_000)
+    // A point release the table has not seen takes the family's window
+    expect(contextLimit('gpt-5.6-terra', T)).toBe(272_000)
   })
 
   it('does not match a key that is only a text prefix', () => {

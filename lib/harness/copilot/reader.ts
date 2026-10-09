@@ -61,16 +61,22 @@ export function rowTokens(r: CopilotUsageRow) {
   }
 }
 
+/** What Copilot billed for the call, or null to price it from the token table:
+ *  no AI units recorded, or Copilot priced from the token table */
+export function rowCostUSD(r: CopilotUsageRow): number | null {
+  return r.total_nano_aiu ? copilotCostUSD(r.total_nano_aiu) : null
+}
+
 /**
- * What Copilot billed for the session, per model: each call's AI units at the AIU rate.
- * Without rows the checkpoint's `nanoAiu` goes to `model`. Null when nothing was billed
- * or Copilot is priced from the token table.
+ * What Copilot billed for the session, per model. Without rows the checkpoint's
+ * `nanoAiu` goes to `model`. Null when nothing was billed or Copilot is priced
+ * from the token table.
  */
 function copilotReportedCost(rows: CopilotUsageRow[], nanoAiu: number, model: string): ReportedCost | null {
   const total = copilotCostUSD(nanoAiu)
   if (total === null || nanoAiu <= 0) return null
   const by_model: Record<string, number> = {}
-  for (const r of rows) by_model[r.model] = (by_model[r.model] ?? 0) + (copilotCostUSD(r.total_nano_aiu ?? 0) ?? 0)
+  for (const r of rows) by_model[r.model] = (by_model[r.model] ?? 0) + (rowCostUSD(r) ?? 0)
   if (!rows.length && model !== NO_MODEL) by_model[model] = total
   return { total, by_model }
 }

@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import type { ReplayData } from '@/types/claude'
+import { estimateCostFromUsage } from '@/lib/pricing'
 import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, type CopilotRow } from './helpers/copilot-home'
 
 let saved: string | undefined
@@ -102,5 +103,18 @@ describe('copilot replay edge cases', () => {
     expect(replay.turns.map(t => t.type)).toEqual(['user', 'assistant', 'user', 'assistant'])
     expect(replay.turns[2].tool_results?.map(r => r.tool_use_id)).toEqual(['k1'])
     expect(replay.turns[3]).toMatchObject({ text: 'After', usage: { output_tokens: 20 } })
+  })
+
+  it('estimates a call that billed no AI units from the token table, as the session list does', async () => {
+    const replay = await replayOf([
+      event('session.start', 0, { sessionId: C }),
+      event('user.message', 1, { content: 'Go' }),
+      event('assistant.turn_start', 2),
+      event('assistant.message', 3, { model: 'gpt-5.5', content: 'Answer' }),
+      event('assistant.turn_end', 4),
+    ], [{ ...row(42, 3), nanoAiu: 0 }])
+    const turn = replay.turns.find(t => t.type === 'assistant')!
+    expect(turn.estimated_cost).toBeCloseTo(estimateCostFromUsage('gpt-5.5', turn.usage!))
+    expect(turn.estimated_cost).toBeGreaterThan(0)
   })
 })

@@ -79,4 +79,21 @@ describe('copilot replay edge cases', () => {
     const assistant = replay.turns.filter(t => t.type === 'assistant')
     expect(assistant.map(t => [t.text, t.usage?.output_tokens])).toEqual([['Preamble', undefined], ['Answer', 42]])
   })
+
+  it('puts results written after turn_end before the next turn', async () => {
+    const replay = await replayOf([
+      event('session.start', 0, { sessionId: C }),
+      event('user.message', 1, { content: 'Go' }),
+      event('assistant.turn_start', 2),
+      event('assistant.message', 3, { model: 'gpt-5.5', content: '', toolRequests: [{ toolCallId: 'k1', name: 'view', arguments: {} }] }),
+      event('assistant.turn_end', 4),
+      event('tool.execution_complete', 5, { toolCallId: 'k1', success: true, result: { content: 'file' } }),
+      event('assistant.turn_start', 6),
+      event('assistant.message', 7, { model: 'gpt-5.5', content: 'After' }),
+      event('assistant.turn_end', 8),
+    ], [row(10, 3), row(20, 7)])
+    expect(replay.turns.map(t => t.type)).toEqual(['user', 'assistant', 'user', 'assistant'])
+    expect(replay.turns[2].tool_results?.map(r => r.tool_use_id)).toEqual(['k1'])
+    expect(replay.turns[3]).toMatchObject({ text: 'After', usage: { output_tokens: 20 } })
+  })
 })

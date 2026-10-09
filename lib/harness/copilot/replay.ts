@@ -36,8 +36,14 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
     const uuid = `${id}-${turns.length}`
     turns.push({ uuid, parentUuid: turns.at(-1)?.uuid ?? null, ...turn })
   }
+  // Results go after the turn that asked for them, even when written after its turn_end
+  const flushResults = () => {
+    if (!results.length) return
+    push({ type: 'user', timestamp: turns.at(-1)?.timestamp ?? '', tool_results: results })
+    results = []
+  }
   const flush = (endTs?: string) => {
-    if (!pending) return
+    if (!pending) return flushResults()
     rows ??= mainRowsByTurn(usageFor(id) ?? [])
     const row = pending.spanned ? rows[turnCount++] : undefined
     let usage: TurnUsage | undefined
@@ -62,10 +68,7 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
       turn_duration_ms: Number.isFinite(duration) ? duration : undefined,
     })
     pending = null
-    if (results.length) {
-      push({ type: 'user', timestamp: turns.at(-1)!.timestamp, tool_results: results })
-      results = []
-    }
+    flushResults()
   }
 
   await readJSONLLines(eventsPath, (raw) => {
@@ -120,8 +123,6 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
     }
   })
   flush()
-  // Results written after their turn closed
-  if (results.length) push({ type: 'user', timestamp: turns.at(-1)?.timestamp ?? '', tool_results: results })
 
   return {
     session_id: id,

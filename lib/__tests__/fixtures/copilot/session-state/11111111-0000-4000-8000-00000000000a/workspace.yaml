@@ -1,0 +1,9 @@
+id: 11111111-0000-4000-8000-00000000000a
+cwd: /Users/test/proj
+git_root: /Users/test/proj
+repository: test/proj
+host_type: github
+branch: feat
+name: "Fix the bug"
+user_named: false
+created_at: 2026-10-02T10:00:00.000Z

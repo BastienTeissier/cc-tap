@@ -1,0 +1,16 @@
+{"type": "session.start", "data": {"sessionId": "11111111-0000-4000-8000-00000000000a", "copilotVersion": "1.0.93", "startTime": "2026-10-02T10:00:00.000Z", "context": {"cwd": "/Users/test/proj", "branch": "main"}}, "id": "e0", "timestamp": "2026-10-02T10:00:00.000Z", "parentId": null}
+{"type": "session.model_change", "data": {"newModel": "gpt-5.5"}, "id": "e1", "timestamp": "2026-10-02T10:00:00.000Z", "parentId": null}
+{"type": "user.message", "data": {"content": "Fix the bug", "transformedContent": "<ctx/>Fix the bug"}, "id": "e2", "timestamp": "2026-10-02T10:00:01.000Z", "parentId": null}
+{"type": "assistant.turn_start", "data": {"turnId": "0", "interactionId": "i1"}, "id": "e3", "timestamp": "2026-10-02T10:00:02.000Z", "parentId": null}
+{"type": "assistant.message", "data": {"model": "gpt-5.5", "content": "Looking", "reasoningText": "Check the file first", "turnId": "0", "toolRequests": [{"toolCallId": "c1", "name": "view", "arguments": {"path": "a.ts"}, "type": "function"}, {"toolCallId": "c2", "name": "view", "arguments": {"path": "b.ts"}, "type": "function"}, {"toolCallId": "c3", "name": "bash", "arguments": {"command": "npm test"}, "type": "function"}]}, "id": "e4", "timestamp": "2026-10-02T10:00:05.000Z", "parentId": null}
+{"type": "tool.execution_start", "data": {"toolCallId": "c1", "toolName": "view", "arguments": {"path": "a.ts"}, "turnId": "0"}, "id": "e5", "timestamp": "2026-10-02T10:00:05.000Z", "parentId": null}
+{"type": "tool.execution_start", "data": {"toolCallId": "c2", "toolName": "view", "arguments": {"path": "b.ts"}, "turnId": "0"}, "id": "e6", "timestamp": "2026-10-02T10:00:05.000Z", "parentId": null}
+{"type": "tool.execution_start", "data": {"toolCallId": "c3", "toolName": "bash", "arguments": {"command": "npm test"}, "turnId": "0"}, "id": "e7", "timestamp": "2026-10-02T10:00:05.000Z", "parentId": null}
+{"type": "tool.execution_complete", "data": {"toolCallId": "c1", "success": true, "result": {"content": "const a = 1"}, "turnId": "0"}, "id": "e8", "timestamp": "2026-10-02T10:00:06.000Z", "parentId": null}
+{"type": "tool.execution_complete", "data": {"toolCallId": "c2", "success": true, "result": {"content": "const b = 2"}, "turnId": "0"}, "id": "e9", "timestamp": "2026-10-02T10:00:06.000Z", "parentId": null}
+{"type": "tool.execution_complete", "data": {"toolCallId": "c3", "success": false, "error": {"message": "1 test failed"}, "turnId": "0"}, "id": "e10", "timestamp": "2026-10-02T10:00:09.000Z", "parentId": null}
+{"type": "assistant.turn_end", "data": {"turnId": "0"}, "id": "e11", "timestamp": "2026-10-02T10:00:10.000Z", "parentId": null}
+{"type": "assistant.turn_start", "data": {"turnId": "1", "interactionId": "i1"}, "id": "e12", "timestamp": "2026-10-02T10:00:11.000Z", "parentId": null}
+{"type": "assistant.message", "data": {"model": "gpt-5.5", "content": "Done", "toolRequests": [], "turnId": "1"}, "id": "e13", "timestamp": "2026-10-02T10:00:15.000Z", "parentId": null}
+{"type": "assistant.turn_end", "data": {"turnId": "1"}, "id": "e14", "timestamp": "2026-10-02T10:00:16.000Z", "parentId": null}
+{"type": "session.usage_checkpoint", "data": {"totalNanoAiu": 3000000000, "totalPremiumRequests": 2}, "id": "e15", "timestamp": "2026-10-02T10:00:16.000Z", "parentId": null}

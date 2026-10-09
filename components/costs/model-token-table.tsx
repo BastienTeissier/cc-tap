@@ -36,9 +36,9 @@ export function ModelTokenTable({ models }: Props) {
               <td className="py-2"><HarnessBadge harness={m.harness} /></td>
               <td className="py-2 text-foreground/80">
                 {modelShortId(m.model)}
-                {m.priced_as && (
-                  <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={`No price entry: charged at ${m.priced_as} rates`}>
-                    est.
+                {m.priced_as !== undefined && (
+                  <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={m.priced_as ? `No price entry: charged at ${m.priced_as} rates` : 'No price entry: counted as $0'}>
+                    {m.priced_as ? 'est.' : 'unpriced'}
                   </span>
                 )}
               </td>

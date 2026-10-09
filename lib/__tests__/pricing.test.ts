@@ -1,4 +1,7 @@
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
+import fs from 'fs/promises'
+import os from 'os'
+import path from 'path'
 
 // Point user overrides at a path that doesn't exist so the developer's real
 // ~/.cc-lens/pricing.json can't leak into assertions
@@ -16,6 +19,7 @@ import {
   hasKnownPricing,
   pricedAs,
   unpricedModels,
+  vendorOf,
   FALLBACK_MODEL,
   estimateCostFromUsage,
   estimateTotalCostFromModel,
@@ -70,8 +74,8 @@ describe('getPricing', () => {
     expect(getPricing('claude-opus-4-20250514').output * MTOK).toBeCloseTo(75)
   })
 
-  it('falls back to current Opus rates for unknown models', () => {
-    expect(getPricing('some-future-model').input * MTOK).toBeCloseTo(5)
+  it('falls back to current Opus rates for unknown Claude models', () => {
+    expect(getPricing('claude-future-model').input * MTOK).toBeCloseTo(5)
   })
 })
 
@@ -193,5 +197,53 @@ describe('cacheEfficiency', () => {
       webSearchRequests: 0,
     })
     expect(result.hitRate).toBe(0)
+  })
+})
+
+describe('OpenAI models', () => {
+  const usage = (u: Partial<TurnUsage>): TurnUsage => ({ input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, ...u })
+
+  it('tells the vendor from the model id', () => {
+    expect(vendorOf('claude-opus-5-5')).toBe('anthropic')
+    for (const m of ['gpt-5.5', 'gpt-5.3-codex', 'o3', 'gpt-5.6-terra']) expect(vendorOf(m)).toBe('openai')
+    expect(vendorOf('llama-x')).toBe('unknown')
+  })
+
+  it('prices an unknown GPT at the OpenAI fallback, never at Claude rates', () => {
+    expect(pricedAs('gpt-9')).toBe('gpt-5.5')
+    expect(pricedAs('gpt-5.2-codex')).toBe('gpt-5.2')
+    expect(pricedAs('gpt-5.1-codex-mini')).toBe('gpt-5.1-codex-mini')
+    expect(pricedAs('claude-sonnet-6')).toBe(FALLBACK_MODEL)
+  })
+
+  it('leaves a model of an unknown vendor unpriced, at no cost', () => {
+    const u = { inputTokens: MTOK, outputTokens: MTOK, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, webSearchRequests: 0 }
+    expect(unpricedModels({ 'llama-x': u })).toEqual([{ model: 'llama-x', priced_as: '' }])
+    expect(estimateTotalCostFromModel('llama-x', u)).toBe(0)
+  })
+
+  it('charges cache reads at the cached-input rate and cache writes as input', () => {
+    expect(estimateCostFromUsage('gpt-5.5', usage({ cache_read_input_tokens: MTOK }))).toBeCloseTo(0.5)
+    expect(estimateCostFromUsage('gpt-5.5', usage({ input_tokens: MTOK }))).toBeCloseTo(5)
+    expect(estimateCostFromUsage('gpt-5.5', usage({
+      cache_creation_input_tokens: MTOK,
+      cache_creation: { ephemeral_5m_input_tokens: MTOK / 2, ephemeral_1h_input_tokens: MTOK / 2 },
+    }))).toBeCloseTo(5)
+  })
+
+  it('takes an OpenAI entry from pricing.json over the default', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-pricing-'))
+    await fs.writeFile(path.join(dir, 'pricing.json'), JSON.stringify({ 'gpt-5.5': { input: 1, output: 2, cacheWrite: 1, cacheRead: 0.1 } }))
+    const previous = process.env.CC_LENS_CONFIG_DIR
+    process.env.CC_LENS_CONFIG_DIR = dir
+    try {
+      vi.resetModules()
+      const fresh = await import('@/lib/pricing')
+      expect(fresh.getPricing('gpt-5.5').input * MTOK).toBeCloseTo(1)
+      expect(fresh.getPricing('gpt-5.5').cacheRead * MTOK).toBeCloseTo(0.1)
+    } finally {
+      process.env.CC_LENS_CONFIG_DIR = previous
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

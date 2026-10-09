@@ -8,9 +8,9 @@ interface Props {
   models: ModelCostBreakdown[]
 }
 
-/** Renders nothing unless a model was charged at another entry's rates */
+/** Renders nothing unless a model was charged at another entry's rates, or not at all */
 export function UnpricedModelsAlert({ models }: Props) {
-  const unpriced = models.filter(m => m.priced_as)
+  const unpriced = models.filter(m => m.priced_as !== undefined)
   if (unpriced.length === 0) return null
 
   return (
@@ -23,8 +23,10 @@ export function UnpricedModelsAlert({ models }: Props) {
         <ul className="space-y-0.5">
           {unpriced.map(m => (
             <li key={m.model}>
-              {modelLabel(m.model)} (<code>{m.model}</code>) is charged at <code>{m.priced_as}</code> rates
-              {m.priced_as === FALLBACK_MODEL ? ', the default for unknown models' : ''}.
+              {modelLabel(m.model)} (<code>{m.model}</code>){' '}
+              {m.priced_as === ''
+                ? 'is unpriced: its vendor has no default, so it counts as $0'
+                : <>is charged at <code>{m.priced_as}</code> rates{m.priced_as === FALLBACK_MODEL ? ', the default for unknown models' : ''}</>}.
             </li>
           ))}
         </ul>

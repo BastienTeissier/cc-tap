@@ -20,6 +20,7 @@ import {
   pricedAs,
   unpricedModels,
   vendorOf,
+  pricingNote,
   FALLBACK_MODEL,
   estimateCostFromUsage,
   estimateTotalCostFromModel,
@@ -258,5 +259,12 @@ describe('OpenAI models', () => {
       process.env.CC_LENS_CONFIG_DIR = previous
       await fs.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('pricingNote', () => {
+  it('words borrowed rates as an estimate and no rates as unpriced', () => {
+    expect(pricingNote('gpt-4.1')).toEqual({ label: 'est.', text: 'charged at gpt-4.1 rates' })
+    expect(pricingNote('')).toEqual({ label: 'unpriced', text: 'unpriced, counted as $0' })
   })
 })

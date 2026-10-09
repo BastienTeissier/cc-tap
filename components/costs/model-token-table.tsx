@@ -1,5 +1,6 @@
 import { formatTokens, formatCost } from '@/lib/decode'
 import { modelShortId } from '@/lib/model-label'
+import { pricingNote } from '@/lib/pricing'
 import { HarnessBadge } from '@/components/ui/harness-badge'
 import type { ModelCostBreakdown } from '@/types/claude'
 
@@ -37,8 +38,8 @@ export function ModelTokenTable({ models }: Props) {
               <td className="py-2 text-foreground/80">
                 {modelShortId(m.model)}
                 {m.priced_as !== undefined && (
-                  <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={m.priced_as ? `No price entry: charged at ${m.priced_as} rates` : 'No price entry: counted as $0'}>
-                    {m.priced_as ? 'est.' : 'unpriced'}
+                  <span className="ml-2 text-[11px] text-amber-600 dark:text-amber-400" title={`No price entry: ${pricingNote(m.priced_as).text}`}>
+                    {pricingNote(m.priced_as).label}
                   </span>
                 )}
               </td>

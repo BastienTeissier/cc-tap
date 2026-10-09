@@ -220,6 +220,14 @@ export function unpricedModels(usage: Record<string, ModelUsage> | undefined): U
     .map(model => ({ model, priced_as: pricedAs(model) }))
 }
 
+/** How the cost views word an UnpricedModel's `priced_as`: borrowed rates make
+ *  an estimate, '' means no rates at all */
+export function pricingNote(pricedAs: string): { label: string; text: string } {
+  return pricedAs
+    ? { label: 'est.', text: `charged at ${pricedAs} rates` }
+    : { label: 'unpriced', text: 'unpriced, counted as $0' }
+}
+
 const UNPRICED: Required<ModelPricing> = { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }
 
 function getPricing(model: string): Required<ModelPricing> {

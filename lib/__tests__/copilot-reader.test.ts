@@ -5,7 +5,7 @@ import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import { parseWorkspaceYaml } from '@/lib/harness/copilot/reader'
 import type { SessionFileEntry, SessionRecord } from '@/lib/harness/types'
-import { COPILOT_A as A, COPILOT_B as B, makeCopilotHome } from './helpers/copilot-home'
+import { COPILOT_A as A, COPILOT_B as B, COPILOT_ROWS, makeCopilotHome } from './helpers/copilot-home'
 
 let saved: string | undefined
 let root: string
@@ -102,5 +102,26 @@ describe('copilot reader', () => {
   it('reads the flat keys of workspace.yaml', () => {
     expect(parseWorkspaceYaml('id: x\ncwd: /a b\nname: "Quoted: yes"\nsummary: \'single\'\n  nested: no\n# comment\n'))
       .toEqual({ id: 'x', cwd: '/a b', name: 'Quoted: yes', summary: 'single' })
+  })
+
+  it('dates a turn with an unusable time by its usage row', async () => {
+    const C = '33333333-0000-4000-8000-00000000000c'
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
+    try {
+      await makeCopilotHome(home, [...COPILOT_ROWS, { session_id: C, model: 'gpt-5.5', input: 100, output: 7, cacheRead: 0, cacheWrite: 0, reasoning: 0, nanoAiu: 0, at: '2026-10-03T10:00:02.000Z' }])
+      await fs.mkdir(path.join(home, 'session-state', C))
+      await fs.writeFile(path.join(home, 'session-state', C, 'events.jsonl'), [
+        { type: 'session.start', timestamp: '2026-10-03T10:00:00.000Z', data: { sessionId: C } },
+        { type: 'assistant.turn_start', timestamp: 'not a time', data: {} },
+      ].map(e => JSON.stringify(e)).join('\n'))
+      process.env.COPILOT_HOME = home
+      const entry = (await copilotAdapter.listSessionFiles()).find(e => e.session_id === C)!
+      const c = (await copilotAdapter.parseSession(entry))!
+      expect(c.session.assistant_message_count).toBe(1)
+      expect(c.session.output_tokens).toBe(7)
+    } finally {
+      process.env.COPILOT_HOME = root
+      await fs.rm(home, { recursive: true, force: true })
+    }
   })
 })

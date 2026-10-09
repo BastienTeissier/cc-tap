@@ -163,7 +163,8 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
     const row = main[i]
     const t = row ? rowTokens(row) : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
     ledger.addTurn({
-      ts: turn?.ts ?? Date.parse(row.created_at),
+      // A turn_start without a usable time takes its call's
+      ts: turn && Number.isFinite(turn.ts) ? turn.ts : Date.parse(row?.created_at ?? ''),
       model: row?.model ?? turn?.model ?? model,
       ...t,
       toolCalls: turn?.toolCalls ?? 0,

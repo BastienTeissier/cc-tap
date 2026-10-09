@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { categoryColorMix, parseMcpTool, isMcpTool, toolBarColor } from '@/lib/tool-categories'
 import type { ToolCall } from '@/types/claude'
+import type { Harness } from '@/types/harness'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -86,18 +87,18 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   TodoWrite:     ListTodo,
 }
 
-function ToolIcon({ name, color }: { name: string; color: string }) {
-  const Icon = TOOL_ICONS[name] ?? (isMcpTool(name) ? Plug : Wrench)
+function ToolIcon({ name, harness, color }: { name: string; harness: Harness; color: string }) {
+  const Icon = TOOL_ICONS[name] ?? (isMcpTool(name, harness) ? Plug : Wrench)
   return <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" style={{ color }} />
 }
 
-export function ToolCallBadge({ tool, result, inInput = false, inResult = false }: { tool: ToolCall; result?: { content: string; is_error: boolean }; inInput?: boolean; inResult?: boolean }) {
+export function ToolCallBadge({ tool, harness, result, inInput = false, inResult = false }: { tool: ToolCall; harness: Harness; result?: { content: string; is_error: boolean }; inInput?: boolean; inResult?: boolean }) {
   const [expanded, setExpanded] = useState<boolean | null>(null)
   const input = JSON.stringify(tool.input, null, 2)
   // A search hit inside the call opens it, unless the reader has said otherwise
   const isExpanded = expanded ?? (inInput || inResult)
-  const color = toolBarColor(tool.name)
-  const mcp = parseMcpTool(tool.name)
+  const color = toolBarColor(tool.name, harness)
+  const mcp = parseMcpTool(tool.name, harness)
   const arg = getToolArg(tool)
   const displayName = mcp ? `${mcp.server} · ${mcp.tool}` : tool.name
 
@@ -121,7 +122,7 @@ export function ToolCallBadge({ tool, result, inInput = false, inResult = false 
         style={{ color: 'var(--foreground)' }}
       >
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          <ToolIcon name={tool.name} color={color} />
+          <ToolIcon name={tool.name} harness={harness} color={color} />
           <span className="font-bold" style={{ color }}>
             {displayName}
           </span>

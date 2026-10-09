@@ -426,6 +426,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               <div ref={setListRoot}>
                 <TurnList
                   turns={allTurns}
+                  harness={replayData.harness}
                   toolResults={toolResults}
                   compactions={replayData.compactions}
                   window={win}

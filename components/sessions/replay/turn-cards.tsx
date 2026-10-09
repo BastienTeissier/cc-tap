@@ -8,6 +8,7 @@ import { UserToolResult } from './user-tool-result'
 import { formatCost, formatTokens, formatDurationMs } from '@/lib/decode'
 import { modelLabel } from '@/lib/model-label'
 import type { ReplayTurn, CompactionEvent } from '@/types/claude'
+import type { Harness } from '@/types/harness'
 import type { TurnMatch } from '@/lib/replay-search'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,7 @@ const ASSISTANT_COLLAPSE_THRESHOLD = 900
 
 interface TurnCardProps {
   turn: ReplayTurn
+  harness: Harness
   turnNumber: number
   compactionBefore?: CompactionEvent
   toolResults: Map<string, { content: string; is_error: boolean }>
@@ -105,7 +107,7 @@ function UserTurnCardView({ turn, compactionBefore, match }: TurnCardProps) {
   )
 }
 
-function AssistantTurnCardView({ turn, turnNumber, toolResults, match }: TurnCardProps) {
+function AssistantTurnCardView({ turn, harness, turnNumber, toolResults, match }: TurnCardProps) {
   // null until the reader decides; a search hit inside opens the part meanwhile
   const [thinkingOpen, setThinkingOpen] = useState<boolean | null>(null)
   const [expanded, setExpanded] = useState<boolean | null>(null)
@@ -178,6 +180,7 @@ function AssistantTurnCardView({ turn, turnNumber, toolResults, match }: TurnCar
             <ToolCallBadge
               key={tc.id}
               tool={tc}
+              harness={harness}
               result={toolResults.get(tc.id)}
               inInput={match?.inputs.has(tc.id)}
               inResult={match?.results.has(tc.id)}

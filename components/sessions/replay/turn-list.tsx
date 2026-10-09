@@ -5,6 +5,7 @@ import { useVirtualizer, useWindowVirtualizer, type Virtualizer } from '@tanstac
 import { UserTurnCard, AssistantTurnCard } from './turn-cards'
 import { inWindow, type TimeWindow } from '@/lib/time-window'
 import type { CompactionEvent, ReplayTurn } from '@/types/claude'
+import type { Harness } from '@/types/harness'
 import type { TurnMatch } from '@/lib/replay-search'
 import { Undo2 } from 'lucide-react'
 
@@ -26,6 +27,7 @@ const SHARED_OPTIONS = {
 
 interface TurnListProps {
   turns: readonly ReplayTurn[]
+  harness: Harness
   toolResults: Map<string, { content: string; is_error: boolean }>
   compactions: readonly CompactionEvent[]
   /** turns outside the selected window are dimmed, never hidden */
@@ -100,7 +102,7 @@ interface RowsProps extends TurnListProps {
 }
 
 function Rows({
-  turns, toolResults, compactions, window: win, hitUuids, current, focus, onRenderedChange,
+  turns, harness, toolResults, compactions, window: win, hitUuids, current, focus, onRenderedChange,
   virtualizer, offset, takeList,
 }: RowsProps) {
   // Keep the scroll where the reader put it when a card above the fold is
@@ -178,6 +180,7 @@ function Rows({
               {turn.type === 'user' ? (
                 <UserTurnCard
                   turn={turn}
+                  harness={harness}
                   turnNumber={i + 1}
                   compactionBefore={compactionByIndex.get(i)}
                   toolResults={toolResults}
@@ -186,6 +189,7 @@ function Rows({
               ) : (
                 <AssistantTurnCard
                   turn={turn}
+                  harness={harness}
                   turnNumber={assistantNumbers[i]}
                   compactionBefore={compactionByIndex.get(i)}
                   toolResults={toolResults}

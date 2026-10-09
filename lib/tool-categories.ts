@@ -93,8 +93,8 @@ export function categorizeTool(name: string, harness: Harness = 'claude'): ToolC
   return TOOL_CATEGORIES_BY_HARNESS[harness][name] ?? 'other'
 }
 
-export function toolBarColor(toolName: string): string {
-  return TOOL_BAR_OVERRIDES[toolName] ?? CATEGORY_COLORS[categorizeTool(toolName)]
+export function toolBarColor(toolName: string, harness: Harness = 'claude'): string {
+  return TOOL_BAR_OVERRIDES[toolName] ?? CATEGORY_COLORS[categorizeTool(toolName, harness)]
 }
 
 /**

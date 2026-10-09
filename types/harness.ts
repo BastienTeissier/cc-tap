@@ -9,6 +9,13 @@ export const HARNESS_LABELS: Record<Harness, string> = {
   copilot: 'Copilot CLI',
 }
 
+/** Each harness's hue for charts; HarnessBadge uses the matching Tailwind classes (amber, emerald, violet) */
+export const HARNESS_COLORS: Record<Harness, string> = {
+  claude: '#f59e0b',
+  codex: '#10b981',
+  copilot: '#8b5cf6',
+}
+
 /** GET /api/harnesses */
 export interface HarnessesResponse {
   /** Harnesses with a reader whose dir exists */

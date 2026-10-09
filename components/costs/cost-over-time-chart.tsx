@@ -4,15 +4,8 @@ import { useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { formatCost } from '@/lib/decode'
 import { modelLabel } from '@/lib/model-label'
-import { HARNESS_LABELS, isHarness, type Harness } from '@/types/harness'
+import { HARNESS_COLORS, HARNESS_LABELS, isHarness } from '@/types/harness'
 import type { DailyCost } from '@/types/claude'
-
-// Same hues as HarnessBadge
-const HARNESS_COLORS: Record<Harness, string> = {
-  claude: '#f59e0b',
-  codex: '#10b981',
-  copilot: '#8b5cf6',
-}
 
 const MODEL_COLORS: Record<string, string> = {
   'claude-fable-5-1':       '#ec4899',

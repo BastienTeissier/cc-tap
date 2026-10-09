@@ -1,6 +1,7 @@
 import { HARNESS_LABELS, type Harness } from '@/types/harness'
 import { cn } from '@/lib/utils'
 
+// Tailwind needs literal class names: these match HARNESS_COLORS in types/harness.ts
 const COLORS: Record<Harness, string> = {
   claude: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
   codex: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',

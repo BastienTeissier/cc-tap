@@ -3,6 +3,14 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 
+// Passthrough spy: lets the tests prove the aggregate routes never re-walk a transcript
+const jsonl = vi.hoisted(() => ({ readJSONLLines: undefined as unknown as ReturnType<typeof vi.fn> }))
+vi.mock('@/lib/jsonl', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/jsonl')>()
+  jsonl.readJSONLLines = vi.fn(original.readJSONLLines)
+  return { ...original, readJSONLLines: jsonl.readJSONLLines }
+})
+
 // The store caches per module instance, so it is imported fresh after env setup.
 let tmpDir: string
 let previousClaudeConfigDir: string | undefined
@@ -95,6 +103,19 @@ describe('session store', () => {
     const reader = await import('@/lib/claude-reader')
     expect((await reader.getSessions()).map(s => s.session_id)).toEqual([SESSION_ID, OTHER_ID])
     expect(await reader.findSessionJSONL(SESSION_ID)).toContain(`${SESSION_ID}.jsonl`)
+  })
+})
+
+describe('aggregate routes', () => {
+  it('read no transcript line once the sessions are parsed', async () => {
+    await store.getAllSessionRecords()
+    const tools = await import('@/app/api/tools/route')
+    const projects = await import('@/app/api/projects/route')
+    jsonl.readJSONLLines.mockClear()
+
+    await tools.GET()
+    await projects.GET()
+    expect(jsonl.readJSONLLines).not.toHaveBeenCalled()
   })
 })
 

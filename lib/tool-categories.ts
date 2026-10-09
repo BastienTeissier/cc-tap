@@ -11,7 +11,7 @@ export type ToolCategory =
   | 'mcp'
   | 'other'
 
-export const TOOL_CATEGORIES_BY_HARNESS: Record<Harness, Record<string, ToolCategory>> = {
+const TOOL_CATEGORIES_BY_HARNESS: Record<Harness, Record<string, ToolCategory>> = {
   claude: {
     Read:           'file-io',
     Write:          'file-io',

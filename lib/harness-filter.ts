@@ -7,6 +7,15 @@ export function harnessesFromSearch(search: string): Harness[] | null {
   return raw.split(',').map(v => v.trim()).filter(isHarness)
 }
 
+/**
+ * An API URL carrying the page's raw `?h=` value, unchanged when there is none.
+ * Forwarded as-is so the API parses it like the page did: all-unknown stays [] (not "all").
+ */
+export function withHarnessParam(base: string, raw: string | null): string {
+  if (!raw) return base
+  return `${base}${base.includes('?') ? '&' : '?'}h=${encodeURIComponent(raw)}`
+}
+
 export function harnessesToSearch(search: string, hs: Harness[] | null): string {
   const p = new URLSearchParams(search)
   if (hs) p.set('h', hs.join(','))

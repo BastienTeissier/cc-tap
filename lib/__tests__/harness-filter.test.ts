@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { harnessesFromSearch, harnessesToSearch, filterByHarness } from '@/lib/harness-filter'
+import { harnessesFromSearch, harnessesToSearch, filterByHarness, withHarnessParam } from '@/lib/harness-filter'
 
 describe('harnessesFromSearch', () => {
   it('reads no filter when h is absent or empty', () => {
@@ -37,5 +37,22 @@ describe('filterByHarness', () => {
 
   it('keeps only the selected harnesses', () => {
     expect(filterByHarness(items, ['codex'])).toEqual([{ harness: 'codex' }])
+  })
+})
+
+describe('withHarnessParam', () => {
+  it('leaves the URL alone when the page has no filter', () => {
+    expect(withHarnessParam('/api/costs', null)).toBe('/api/costs')
+    expect(withHarnessParam('/api/costs', '')).toBe('/api/costs')
+  })
+
+  it('appends h with ? or & depending on the URL', () => {
+    expect(withHarnessParam('/api/costs', 'claude,codex')).toBe('/api/costs?h=claude%2Ccodex')
+    expect(withHarnessParam('/api/costs?range=30d', 'codex')).toBe('/api/costs?range=30d&h=codex')
+  })
+
+  it('keeps an all-unknown filter empty on the API side, not "all"', () => {
+    const url = new URL(withHarnessParam('/api/costs', 'foo'), 'http://localhost')
+    expect(harnessesFromSearch(url.search)).toEqual([])
   })
 })

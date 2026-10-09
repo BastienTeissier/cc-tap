@@ -28,7 +28,7 @@ interface RowMetrics {
   shown: SessionMetrics
   whole?: SessionMetrics
   agentCount: number
-  /** false when Claude Code reported the session's cost, true when the rate table priced it */
+  /** false when the harness reported the session's cost, true when the rate table priced it */
   estimated: boolean
 }
 
@@ -413,7 +413,7 @@ function SessionCostCell({ metrics: m }: { metrics: RowMetrics }) {
     <Tooltip>
       <TooltipTrigger asChild><span className={HINT}>{shown}</span></TooltipTrigger>
       <TooltipContent side="left" className="font-mono text-xs">
-        {m.estimated && <div className={agentCount > 0 || wholeDiffers ? 'mb-1' : ''}>estimate: Claude Code reported no cost for the whole session</div>}
+        {m.estimated && <div className={agentCount > 0 || wholeDiffers ? 'mb-1' : ''}>estimate: no cost reported for the whole session</div>}
         {agentCount > 0 && <div>main {formatCost(main)} · agents {formatCost(agents)} · {agentCount} agent{agentCount === 1 ? '' : 's'}</div>}
         {wholeDiffers && <div className={agentCount > 0 ? 'mt-1 text-muted-foreground' : ''}>whole session {formatCost(m.whole!.estimated_cost)}</div>}
       </TooltipContent>

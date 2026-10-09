@@ -71,8 +71,8 @@ export default function CostsPage() {
                   <p className="text-xs text-muted-foreground">{rangeLabel} spend across all projects</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {data.sessions_estimated === 0
-                      ? 'Reported by Claude Code'
-                      : `${data.sessions - data.sessions_estimated} of ${data.sessions} sessions reported by Claude Code, ${data.sessions_estimated} estimated from the rate table`}
+                      ? 'Reported by the harnesses'
+                      : `${data.sessions - data.sessions_estimated} of ${data.sessions} sessions reported by their harness, ${data.sessions_estimated} estimated from the rate table`}
                   </p>
                 </CardContent>
               </Card>

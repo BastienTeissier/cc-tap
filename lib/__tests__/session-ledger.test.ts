@@ -144,6 +144,25 @@ describe('ledgerMetrics', () => {
     }), 10)
   })
 
+  it('costs billed turns what the harness billed, whole session and window alike', () => {
+    // An unpriced model next to a priced one, as Copilot passes them with its reported total
+    const b = new LedgerBuilder()
+    b.addTurn({ ts: T0, model: 'mystery-model', input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, toolCalls: 0, billed: 0.01 })
+    b.addTurn({ ts: T0 + 10 * MIN, model: 'gpt-5.5', input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, toolCalls: 0, billed: 0.03 })
+    b.addTurn({ ts: T0 + 20 * MIN, model: 'mystery-model', input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, toolCalls: 0, billed: 0.02 })
+    const ledger = b.build()
+    const reported = { total: 0.06, by_model: { 'mystery-model': 0.03, 'gpt-5.5': 0.03 } }
+
+    const whole = ledgerMetrics(ledger, null, 20, reported)
+    expect(whole.model_usage['mystery-model'].costUSD).toBeCloseTo(0.03)
+    expect(whole.model_usage['gpt-5.5'].costUSD).toBeCloseTo(0.03)
+    expect(whole.estimated_cost).toBeCloseTo(0.06)
+
+    const late = ledgerMetrics(ledger, { from: T0 + 15 * MIN, to: T0 + 30 * MIN }, 15, reported)
+    expect(late.model_usage['mystery-model'].costUSD).toBeCloseTo(0.02)
+    expect(late.estimated_cost).toBeCloseTo(0.02)
+  })
+
   it('round-trips through the public session fields', () => {
     const s = regular(T0, T0 + 60 * MIN, [T0 + 31 * MIN])
     const m = ledgerMetrics(s.ledger, null, 60)

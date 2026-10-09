@@ -6,6 +6,7 @@ import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import { parseWorkspaceYaml } from '@/lib/harness/copilot/reader'
 import type { SessionFileEntry, SessionRecord } from '@/lib/harness/types'
 import { sessionCost } from '@/lib/pricing'
+import { sliceSession } from '@/lib/session-ledger'
 import { COPILOT_A as A, COPILOT_B as B, COPILOT_ROWS, makeCopilotHome } from './helpers/copilot-home'
 
 let saved: string | undefined
@@ -141,5 +142,12 @@ describe('copilot reader', () => {
     expect(a.session.model_usage?.['gpt-5.5'].costUSD).toBeCloseTo(0.02)
     expect(a.session.agent_model_usage?.['claude-haiku-4-5'].costUSD).toBeCloseTo(0.01)
     expect(sessionCost(b.session)).toBeCloseTo(0.005)
+  })
+
+  it('costs a window what its calls billed', () => {
+    const w = { from: Date.parse('2026-10-02T10:00:10.000Z'), to: Date.parse('2026-10-02T10:00:20.000Z') }
+    const slice = sliceSession({ session: a.session, ledger: a.ledger }, w)!
+    expect(slice.estimated_cost).toBeCloseTo(0.01, 5)
+    expect(Object.keys(slice.model_usage)).toEqual(['gpt-5.5'])
   })
 })

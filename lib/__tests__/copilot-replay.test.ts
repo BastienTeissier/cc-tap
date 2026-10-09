@@ -1,35 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { copilotAdapter } from '@/lib/harness/copilot/adapter'
 import type { ReplayData } from '@/types/claude'
 import { estimateCostFromUsage } from '@/lib/pricing'
-import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, type CopilotRow } from './helpers/copilot-home'
+import { COPILOT_A as A, COPILOT_ROWS, makeCopilotHome, withCopilotHome, type CopilotRow } from './helpers/copilot-home'
 
-let saved: string | undefined
-let savedConfig: string | undefined
-let root: string
+const copilot = withCopilotHome()
 let replay: ReplayData
 
 beforeAll(async () => {
-  saved = process.env.COPILOT_HOME
-  // The AIU rate must not come from the developer's ~/.cc-lens/pricing.json
-  savedConfig = process.env.CC_LENS_CONFIG_DIR
-  process.env.CC_LENS_CONFIG_DIR = '/nonexistent-cc-lens-test'
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
-  await makeCopilotHome(root)
-  process.env.COPILOT_HOME = root
   const entry = (await copilotAdapter.listSessionFiles()).find(e => e.session_id === A)!
   replay = await copilotAdapter.parseReplay(entry)
-})
-
-afterAll(async () => {
-  if (saved === undefined) delete process.env.COPILOT_HOME
-  else process.env.COPILOT_HOME = saved
-  if (savedConfig === undefined) delete process.env.CC_LENS_CONFIG_DIR
-  else process.env.CC_LENS_CONFIG_DIR = savedConfig
-  await fs.rm(root, { recursive: true, force: true })
 })
 
 describe('copilot replay', () => {
@@ -69,7 +52,7 @@ async function replayOf(events: string[], rows: CopilotRow[]): Promise<ReplayDat
     const entry = (await copilotAdapter.listSessionFiles()).find(e => e.session_id === C)!
     return await copilotAdapter.parseReplay(entry)
   } finally {
-    process.env.COPILOT_HOME = root
+    process.env.COPILOT_HOME = copilot.root
     await fs.rm(home, { recursive: true, force: true })
   }
 }

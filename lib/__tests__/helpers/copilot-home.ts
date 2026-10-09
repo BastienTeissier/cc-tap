@@ -1,5 +1,7 @@
 import fs from 'fs/promises'
+import os from 'os'
 import path from 'path'
+import { afterAll, beforeAll } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 
 const COPILOT_FIXTURES = path.join(__dirname, '..', 'fixtures', 'copilot')
@@ -36,4 +38,30 @@ export async function makeCopilotHome(home: string, rows: CopilotRow[] = COPILOT
     insert.run(r.session_id, r.agent_id ?? null, r.model, r.input, r.output, r.cacheRead, r.cacheWrite, r.reasoning, r.nanoAiu, r.at)
   }
   db.close()
+}
+
+/**
+ * Registers hooks that point COPILOT_HOME at a fresh home with the fixtures, and keep
+ * the AIU rate off the developer's ~/.cc-lens/pricing.json. `root` is set before the
+ * file's own beforeAll runs.
+ */
+export function withCopilotHome(): { root: string } {
+  const home = { root: '' }
+  const saved: Record<string, string | undefined> = {}
+  beforeAll(async () => {
+    saved.COPILOT_HOME = process.env.COPILOT_HOME
+    saved.CC_LENS_CONFIG_DIR = process.env.CC_LENS_CONFIG_DIR
+    process.env.CC_LENS_CONFIG_DIR = '/nonexistent-cc-lens-test'
+    home.root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
+    await makeCopilotHome(home.root)
+    process.env.COPILOT_HOME = home.root
+  })
+  afterAll(async () => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    await fs.rm(home.root, { recursive: true, force: true })
+  })
+  return home
 }

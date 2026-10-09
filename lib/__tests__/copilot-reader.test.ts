@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -7,34 +7,17 @@ import { parseWorkspaceYaml } from '@/lib/harness/copilot/reader'
 import type { SessionFileEntry, SessionRecord } from '@/lib/harness/types'
 import { sessionCost } from '@/lib/pricing'
 import { sliceSession } from '@/lib/session-ledger'
-import { COPILOT_A as A, COPILOT_B as B, COPILOT_ROWS, makeCopilotHome } from './helpers/copilot-home'
+import { COPILOT_A as A, COPILOT_B as B, COPILOT_ROWS, makeCopilotHome, withCopilotHome } from './helpers/copilot-home'
 
-let saved: string | undefined
-let savedConfig: string | undefined
-let root: string
+const copilot = withCopilotHome()
 let entries: SessionFileEntry[]
 let a: SessionRecord
 let b: SessionRecord
 
 beforeAll(async () => {
-  saved = process.env.COPILOT_HOME
-  // The AIU rate must not come from the developer's ~/.cc-lens/pricing.json
-  savedConfig = process.env.CC_LENS_CONFIG_DIR
-  process.env.CC_LENS_CONFIG_DIR = '/nonexistent-cc-lens-test'
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-copilot-'))
-  await makeCopilotHome(root)
-  process.env.COPILOT_HOME = root
   entries = await copilotAdapter.listSessionFiles()
   a = (await copilotAdapter.parseSession(entries.find(e => e.session_id === A)!))!
   b = (await copilotAdapter.parseSession(entries.find(e => e.session_id === B)!))!
-})
-
-afterAll(async () => {
-  if (saved === undefined) delete process.env.COPILOT_HOME
-  else process.env.COPILOT_HOME = saved
-  if (savedConfig === undefined) delete process.env.CC_LENS_CONFIG_DIR
-  else process.env.CC_LENS_CONFIG_DIR = savedConfig
-  await fs.rm(root, { recursive: true, force: true })
 })
 
 describe('copilot reader', () => {
@@ -132,7 +115,7 @@ describe('copilot reader', () => {
       expect(c.session.assistant_message_count).toBe(1)
       expect(c.session.output_tokens).toBe(7)
     } finally {
-      process.env.COPILOT_HOME = root
+      process.env.COPILOT_HOME = copilot.root
       await fs.rm(home, { recursive: true, force: true })
     }
   })

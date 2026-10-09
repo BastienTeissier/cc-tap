@@ -75,7 +75,7 @@ describe('responseKey / maxUsage / ResponseTracker', () => {
 // The three places that read usage from transcripts, on the same fixture.
 let tmpDir: string
 let previous: string | undefined
-let reader: typeof import('@/lib/harness/session-store')
+let store: typeof import('@/lib/harness/session-store')
 let replay: typeof import('@/lib/replay-parser')
 
 beforeAll(async () => {
@@ -87,7 +87,7 @@ beforeAll(async () => {
   previous = process.env.CLAUDE_CONFIG_DIR
   process.env.CLAUDE_CONFIG_DIR = tmpDir
   vi.resetModules()
-  reader = await import('@/lib/harness/session-store')
+  store = await import('@/lib/harness/session-store')
   replay = await import('@/lib/replay-parser')
 })
 
@@ -100,7 +100,7 @@ afterAll(async () => {
 
 describe('a response written over several lines counts once', () => {
   it('in the session totals, sub-agents folded in', async () => {
-    const [s] = (await reader.getAllParsedSessions()).filter(x => x.session_id === SESSION_ID)
+    const [s] = (await store.getAllParsedSessions()).filter(x => x.session_id === SESSION_ID)
     expect(s.assistant_message_count).toBe(2)
     expect(s.input_tokens).toBe(U1.input_tokens + U2_FINAL.input_tokens + U3.input_tokens)
     expect(s.output_tokens).toBe(U1.output_tokens + U2_FINAL.output_tokens + U3.output_tokens)

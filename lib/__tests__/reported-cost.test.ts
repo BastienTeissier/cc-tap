@@ -97,10 +97,10 @@ describe('ledgerMetrics with a reported cost', () => {
   })
 })
 
-// End to end, through the reader: CLAUDE_CONFIG_DIR is read at module load.
+// End to end, through the store: CLAUDE_CONFIG_DIR is read at module load.
 describe('the reader', () => {
   let tmpDir: string
-  let reader: typeof import('@/lib/harness/session-store')
+  let store: typeof import('@/lib/harness/session-store')
   let previousClaudeConfigDir: string | undefined
   const at = (min: number) => new Date(T0 + min * MIN).toISOString()
   const user = (min: number) => JSON.stringify({ type: 'user', timestamp: at(min), cwd: '/Users/test/proj', message: { content: 'go' } })
@@ -123,7 +123,7 @@ describe('the reader', () => {
     previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     vi.resetModules()
-    reader = await import('@/lib/harness/session-store')
+    store = await import('@/lib/harness/session-store')
   })
 
   afterAll(async () => {
@@ -136,7 +136,7 @@ describe('the reader', () => {
   })
 
   it('takes a complete session cost from Claude Code, and estimates the others', async () => {
-    const sessions = Object.fromEntries((await reader.getAllParsedSessions()).map(s => [s.session_id[0], s]))
+    const sessions = Object.fromEntries((await store.getAllParsedSessions()).map(s => [s.session_id[0], s]))
     expect(sessions.a.reported_cost).toEqual({ total: 0.5, by_model: { 'claude-opus-5-5': 0.5 } })
     expect(sessionCost(sessions.a)).toBeCloseTo(0.5)
     expect(sessions.b.reported_cost).toBeNull()

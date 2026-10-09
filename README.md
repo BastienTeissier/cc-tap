@@ -122,7 +122,7 @@ Import is intentionally preview-only right now. It shows which sessions are new 
 - Page shortcuts: `g` plus a page key, for example `g s` for sessions, `g p` for projects, `g c` for costs.
 - Responsive layout with desktop sidebar, collapsible navigation, mobile bottom nav, and mobile menu.
 - Light and dark themes.
-- Harness filter: when more than one harness is detected, the top bar filters every page by harness. It is kept in the URL as `?h=claude,codex`.
+- Harness filter: when more than one harness is detected, the top bar filters the session-based pages by harness (desktop widths). It is kept in the URL as `?h=claude,codex`.
 
 ## Multiple Claude Profiles
 

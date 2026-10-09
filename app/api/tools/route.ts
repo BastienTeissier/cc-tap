@@ -30,8 +30,8 @@ export async function GET(req: Request) {
       if (!toolSessionCount.has(key)) toolSessionCount.set(key, new Set())
       toolSessionCount.get(key)!.add(sid)
 
-      if (isMcpTool(tool)) {
-        const parsed = parseMcpTool(tool)
+      if (isMcpTool(tool, s.harness)) {
+        const parsed = parseMcpTool(tool, s.harness)
         if (parsed) {
           if (!mcpServerCalls.has(parsed.server)) mcpServerCalls.set(parsed.server, new Map())
           if (!mcpServerSessions.has(parsed.server)) mcpServerSessions.set(parsed.server, new Set())
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
   // ── Feature adoption ──────────────────────────────────────────────────────
   const featureSessions = {
     task_agents: sessions.filter(s => s.uses_task_agent || (s.tool_counts?.Task ?? 0) > 0).length,
-    mcp: sessions.filter(s => s.uses_mcp || Object.keys(s.tool_counts ?? {}).some(isMcpTool)).length,
+    mcp: sessions.filter(s => s.uses_mcp || Object.keys(s.tool_counts ?? {}).some(t => isMcpTool(t, s.harness))).length,
     web_search: sessions.filter(s => s.uses_web_search || (s.tool_counts?.WebSearch ?? 0) > 0).length,
     web_fetch: sessions.filter(s => s.uses_web_fetch || (s.tool_counts?.WebFetch ?? 0) > 0).length,
     plan_mode: sessions.filter(s => (s.tool_counts?.EnterPlanMode ?? 0) > 0).length,

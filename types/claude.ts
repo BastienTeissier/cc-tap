@@ -271,6 +271,9 @@ export interface SummaryEvent {
 
 export interface ReplayData {
   session_id: string
+  harness: Harness
+  /** Context window the harness itself reported for this session, when it did */
+  context_window?: number
   slug?: string
   ai_title?: string
   version?: string

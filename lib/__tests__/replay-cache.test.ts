@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, utimesSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync, utimesSync, statSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
 import { cachedReplay, clearReplayCache, gzipOf, replayCacheState, replayEtag } from '@/lib/replay-cache'
+import type { SessionFileEntry } from '@/lib/harness/types'
 import pkg from '../../package.json'
 
 let dir: string
@@ -18,68 +19,80 @@ function writeLog(name: string, texts: string[]): string {
   return file
 }
 
+/** The entry a fresh listing would give for the file */
+function entryOf(file: string): SessionFileEntry {
+  return { harness: 'claude', session_id: path.basename(file, '.jsonl'), path: file, mtimeMs: statSync(file).mtimeMs }
+}
+
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'replay-cache-')); clearReplayCache() })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
 describe('replayEtag', () => {
   it('names the version of a log, and changes when the log grows', async () => {
     const file = writeLog('a', ['one'])
-    const first = await replayEtag(file)
+    const first = await replayEtag(entryOf(file))
     writeFileSync(file, `${line('u1', 'two')}\n`, { flag: 'a' })
-    expect(await replayEtag(file)).not.toBe(first)
+    expect(await replayEtag(entryOf(file))).not.toBe(first)
   })
 
   it('changes when the log is touched, even at the same size', async () => {
     const file = writeLog('a', ['one'])
-    const first = await replayEtag(file)
+    const first = await replayEtag(entryOf(file))
     const later = new Date(Date.now() + 60_000)
     utimesSync(file, later, later)
-    expect(await replayEtag(file)).not.toBe(first)
+    expect(await replayEtag(entryOf(file))).not.toBe(first)
   })
 
   it('names the version of cc-tap too, so an upgrade never answers 304 to an old copy', async () => {
     const file = writeLog('a', ['one'])
-    expect(await replayEtag(file)).toContain(`"${pkg.version}-`)
+    expect(await replayEtag(entryOf(file))).toContain(`"${pkg.version}-`)
   })
 })
 
 describe('cachedReplay', () => {
   it('parses once for a log that has not changed', async () => {
     const file = writeLog('a', ['hello'])
-    const first = await cachedReplay(file, 'a')
-    const second = await cachedReplay(file, 'a')
+    const first = await cachedReplay(entryOf(file))
+    const second = await cachedReplay(entryOf(file))
     expect(second.json).toBe(first.json)          // the same bytes, not a new parse
   })
 
   it('parses again once the log grows, and says so in the etag', async () => {
     const file = writeLog('a', ['hello'])
-    const first = await cachedReplay(file, 'a')
+    const first = await cachedReplay(entryOf(file))
     const later = new Date(Date.now() + 60_000)
     writeFileSync(file, `${line('u9', 'goodbye')}\n`, { flag: 'a' })
     utimesSync(file, later, later)
-    const second = await cachedReplay(file, 'a')
+    const second = await cachedReplay(entryOf(file))
     expect(second.etag).not.toBe(first.etag)
     expect(second.json).not.toBe(first.json)
     expect(JSON.parse(second.json.toString()).turns).toHaveLength(2)
   })
 
   it('holds a few sessions and drops the ones left alone longest', async () => {
-    for (const name of ['a', 'b', 'c', 'd']) await cachedReplay(writeLog(name, [name]), name)
+    for (const name of ['a', 'b', 'c', 'd']) await cachedReplay(entryOf(writeLog(name, [name])))
     expect(replayCacheState().map(e => e.sessionId)).toEqual(['b', 'c', 'd'])
   })
 
   it('keeps a session that is asked for again', async () => {
     const files = Object.fromEntries(['a', 'b', 'c'].map(n => [n, writeLog(n, [n])]))
-    for (const n of ['a', 'b', 'c']) await cachedReplay(files[n], n)
-    await cachedReplay(files.a, 'a')                       // 'a' is wanted again
-    await cachedReplay(writeLog('d', ['d']), 'd')          // so 'b' goes, not 'a'
+    for (const n of ['a', 'b', 'c']) await cachedReplay(entryOf(files[n]))
+    await cachedReplay(entryOf(files.a))                       // 'a' is wanted again
+    await cachedReplay(entryOf(writeLog('d', ['d'])))          // so 'b' goes, not 'a'
     expect(replayCacheState().map(e => e.sessionId)).toEqual(['c', 'a', 'd'])
+  })
+})
+
+describe('cachedReplay harness', () => {
+  it('tags the replay with the harness that parsed it', async () => {
+    const entry = await cachedReplay(entryOf(writeLog('a', ['hello'])))
+    expect(JSON.parse(entry.json.toString()).harness).toBe('claude')
   })
 })
 
 describe('gzipOf', () => {
   it('compresses once per version and answers the same bytes', async () => {
-    const entry = await cachedReplay(writeLog('a', ['hello '.repeat(500)]), 'a')
+    const entry = await cachedReplay(entryOf(writeLog('a', ['hello '.repeat(500)])))
     const first = gzipOf(entry)
     expect(gzipOf(entry)).toBe(first)
     expect(first.byteLength).toBeLessThan(entry.json.byteLength)

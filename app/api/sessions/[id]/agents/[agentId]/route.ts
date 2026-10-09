@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { findSessionJSONL } from '@/lib/claude-reader'
+import { claudeTranscriptOr404 } from '@/lib/harness/claude-only'
 import { parseSessionReplay } from '@/lib/replay-parser'
 import { findSubagentFile } from '@/lib/subagent-files'
 
@@ -16,10 +16,8 @@ export async function GET(
   if (!AGENT_ID.test(agentId)) {
     return NextResponse.json({ error: 'Invalid agent id' }, { status: 400 })
   }
-  const jsonlPath = await findSessionJSONL(id)
-  if (!jsonlPath) {
-    return NextResponse.json({ error: 'Session JSONL not found' }, { status: 404 })
-  }
+  const jsonlPath = await claudeTranscriptOr404(id)
+  if (typeof jsonlPath !== 'string') return jsonlPath
   const file = await findSubagentFile(jsonlPath, id, agentId)
   if (!file) {
     return NextResponse.json({ error: 'Agent transcript not found' }, { status: 404 })

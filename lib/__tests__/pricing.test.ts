@@ -270,7 +270,7 @@ describe('pricingNote', () => {
 })
 
 /** A fresh pricing module reading `file` as ~/.cc-lens/pricing.json */
-async function withPricingFile<T>(file: Record<string, unknown>, run: (p: typeof import('@/lib/pricing')) => T): Promise<T> {
+async function withPricingFile<T>(file: unknown, run: (p: typeof import('@/lib/pricing')) => T): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-lens-pricing-'))
   await fs.writeFile(path.join(dir, 'pricing.json'), JSON.stringify(file))
   const previous = process.env.CC_LENS_CONFIG_DIR
@@ -299,6 +299,19 @@ describe('Copilot AI units', () => {
         expect(p.getPricing('gpt-5.5').input).toBeGreaterThan(0)
       })
       expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('ignores a pricing.json that is not an object', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await withPricingFile(null, (p) => {
+        expect(p.copilotCostUSD(2e9)).toBeCloseTo(0.02)
+        expect(p.getPricing('gpt-5.5').input).toBeGreaterThan(0)
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
     } finally {
       warn.mockRestore()
     }

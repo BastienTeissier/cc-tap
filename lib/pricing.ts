@@ -111,7 +111,11 @@ function readPricingFile(): Record<string, unknown> {
 
     const configDir = process.env.CC_LENS_CONFIG_DIR ?? path.join(os.homedir(), '.cc-lens')
     const file = path.join(configDir, 'pricing.json')
-    if (fs.existsSync(file)) pricingFile = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+    if (fs.existsSync(file)) {
+      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'))
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) pricingFile = raw as Record<string, unknown>
+      else console.warn('[cc-lens] pricing.json: ignoring it, not a JSON object')
+    }
   } catch (err) {
     console.warn('[cc-lens] failed to load pricing.json:', (err as Error).message)
   }

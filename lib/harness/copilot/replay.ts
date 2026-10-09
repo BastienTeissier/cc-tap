@@ -1,0 +1,134 @@
+import type { ReplayData, ReplayTurn, ToolCall, TurnUsage } from '@/types/claude'
+import { estimateCostFromUsage } from '@/lib/pricing'
+import { readJSONLLines } from '@/lib/jsonl'
+import { mainRows, rowTokens, type CopilotEvent } from './reader'
+import { usageFor } from './usage-db'
+
+/** A tool result's text: its content, or the error Copilot reported */
+function resultText(d: CopilotEvent['data']): string {
+  if (typeof d?.result?.content === 'string') return d.result.content
+  if (typeof d?.error?.message === 'string') return d.error.message
+  if (typeof d?.error === 'string') return d.error
+  return ''
+}
+
+/**
+ * events.jsonl → replay turns. Each assistant.turn_start…turn_end span is one model
+ * call, so one assistant turn, its usage taken from the nth main-agent row of the DB.
+ * The tool results of a span follow it as a user turn of `tool_results`, the way
+ * Claude's transcripts carry them.
+ */
+export async function parseCopilotReplay(eventsPath: string, sessionId: string): Promise<ReplayData> {
+  const turns: ReplayTurn[] = []
+  const callsById = new Map<string, ToolCall>()
+  let id = sessionId
+  let version: string | undefined
+  let gitBranch: string | undefined
+  let model: string | undefined
+  let totalCost = 0
+  let turnCount = 0
+  let rows: ReturnType<typeof mainRows> | null = null
+  let pending: { timestamp: string; model?: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[] } | null = null
+  let results: NonNullable<ReplayTurn['tool_results']> = []
+
+  const push = (turn: Omit<ReplayTurn, 'uuid' | 'parentUuid'>) => {
+    const uuid = `${id}-${turns.length}`
+    turns.push({ uuid, parentUuid: turns.at(-1)?.uuid ?? null, ...turn })
+  }
+  const flush = (endTs?: string) => {
+    if (!pending) return
+    rows ??= mainRows(usageFor(id) ?? [])
+    const row = rows[turnCount++]
+    let usage: TurnUsage | undefined
+    if (row) {
+      const t = rowTokens(row)
+      usage = { input_tokens: t.input, output_tokens: t.output, cache_read_input_tokens: t.cacheRead, cache_creation_input_tokens: t.cacheWrite }
+    }
+    const turnModel = row?.model ?? pending.model
+    const cost = usage && turnModel ? estimateCostFromUsage(turnModel, usage) : undefined
+    if (cost) totalCost += cost
+    const duration = endTs ? Date.parse(endTs) - Date.parse(pending.timestamp) : NaN
+    push({
+      type: 'assistant',
+      timestamp: pending.timestamp,
+      model: turnModel,
+      usage,
+      text: pending.text.join('\n\n') || undefined,
+      tool_calls: pending.calls.length ? pending.calls : undefined,
+      has_thinking: pending.hasThinking || undefined,
+      thinking_text: pending.thinking.join('\n\n') || undefined,
+      estimated_cost: cost,
+      turn_duration_ms: Number.isFinite(duration) ? duration : undefined,
+    })
+    pending = null
+    if (results.length) {
+      push({ type: 'user', timestamp: turns.at(-1)!.timestamp, tool_results: results })
+      results = []
+    }
+  }
+
+  await readJSONLLines(eventsPath, (raw) => {
+    const e = raw as CopilotEvent
+    const d = e.data
+    const ts = e.timestamp ?? ''
+    switch (e.type) {
+      case 'session.start':
+        if (typeof d?.sessionId === 'string') id = d.sessionId
+        if (typeof d?.copilotVersion === 'string') version = d.copilotVersion
+        if (typeof d?.context?.branch === 'string' && d.context.branch) gitBranch = d.context.branch
+        break
+      case 'session.model_change':
+        if (typeof d?.newModel === 'string') model = d.newModel
+        break
+      case 'user.message': {
+        flush()
+        const text = typeof d?.content === 'string' ? d.content.trim() : ''
+        if (text) push({ type: 'user', timestamp: ts, text })
+        break
+      }
+      case 'assistant.turn_start':
+        flush()
+        pending = { timestamp: ts, model, text: [], thinking: [], hasThinking: false, calls: [] }
+        break
+      case 'assistant.message': {
+        pending ??= { timestamp: ts, model, text: [], thinking: [], hasThinking: false, calls: [] }
+        if (typeof d?.model === 'string') pending.model = d.model
+        if (typeof d?.content === 'string' && d.content) pending.text.push(d.content)
+        if (typeof d?.reasoningText === 'string' && d.reasoningText) pending.thinking.push(d.reasoningText)
+        if (d?.reasoningText || d?.reasoningOpaque) pending.hasThinking = true
+        for (const r of Array.isArray(d?.toolRequests) ? d.toolRequests : []) {
+          if (typeof r?.name !== 'string') continue
+          const call: ToolCall = { id: r.toolCallId ?? `${id}-call-${callsById.size}`, name: r.name, input: r.arguments ?? {} }
+          callsById.set(call.id, call)
+          pending.calls.push(call)
+        }
+        break
+      }
+      case 'tool.execution_complete': {
+        const content = resultText(d)
+        const isError = d?.success === false
+        const call = callsById.get(d?.toolCallId)
+        if (call) Object.assign(call, { result: content, is_error: isError })
+        results.push({ tool_use_id: d?.toolCallId ?? '', content, is_error: isError })
+        break
+      }
+      case 'assistant.turn_end':
+        flush(ts)
+        break
+    }
+  })
+  flush()
+  // Results written after their turn closed
+  if (results.length) push({ type: 'user', timestamp: turns.at(-1)?.timestamp ?? '', tool_results: results })
+
+  return {
+    session_id: id,
+    harness: 'copilot',
+    version,
+    git_branch: gitBranch,
+    turns,
+    compactions: [],
+    summaries: [],
+    total_cost: totalCost,
+  }
+}

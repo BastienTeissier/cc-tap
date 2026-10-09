@@ -1,0 +1,880 @@
+import fs from 'fs/promises'
+import { createReadStream } from 'fs'
+import { createInterface } from 'readline'
+import path from 'path'
+import type {
+  TurnUsage,
+  StatsCache,
+  HistoryEntry,
+  ModelUsage,
+  LiveSession,
+} from '@/types/claude'
+import { slugToPath } from '@/lib/decode'
+import { listSubagentFiles, readAgentMeta, type SubagentFile } from '@/lib/subagent-files'
+import { pruneScanCache, scanFile } from '@/lib/transcript-scan'
+import { harnessDir } from '@/lib/harness/dirs'
+import type { ParsedSession, RateLimitHit, SessionFileEntry, SessionRecord } from '@/lib/harness/types'
+import { mapPool, readJSONLLines } from '@/lib/jsonl'
+import { FALLBACK_MODEL } from '@/lib/pricing'
+import { LedgerBuilder, NO_MODEL, hasModeledTurns, ledgerMetrics, type TurnLedger } from '@/lib/session-ledger'
+import { ResponseTracker, oneHourWrite, responseKey } from '@/lib/response-usage'
+import { readCostState, reportedCost, type CostState } from '@/lib/reported-cost'
+
+export { mapPool, readJSONLLines }
+export type { ParsedSession, RateLimitHit, SessionRecord }
+
+function stripXmlTags(text: string): string {
+  return text
+    // Paired tags only when open/close names match, so mismatched angle
+    // brackets in prose or code don't swallow unrelated text between them
+    .replace(/<([a-zA-Z][\w-]*)\b[^>]*>[\s\S]*?<\/\1>/g, '')
+    .replace(/<\/?[a-zA-Z][\w-]*\b[^>]*\/?>/g, '')
+    .trim()
+}
+
+
+const projectCwdCache = new Map<string, string>()
+
+/** Resolve the real filesystem path for a project slug by reading `cwd` from its JSONL files */
+export async function resolveProjectPath(slug: string): Promise<string> {
+  const cached = projectCwdCache.get(slug)
+  if (cached) return cached
+  const files = await listProjectJSONLFiles(slug)
+  for (const f of files) {
+    try {
+      const raw = await fs.readFile(f, 'utf-8')
+      const lines = raw.split(/\r?\n/)
+      for (const line of lines.slice(0, 50)) {
+        if (!line.trim()) continue
+        try {
+          const obj = JSON.parse(line)
+          if (obj.cwd && typeof obj.cwd === 'string') {
+            projectCwdCache.set(slug, obj.cwd)
+            return obj.cwd
+          }
+        } catch { /* skip malformed line */ }
+      }
+    } catch { /* try next file */ }
+  }
+  // No cwd recovered — drop any stale cache entry before falling back
+  projectCwdCache.delete(slug)
+  return slugToPath(slug)
+}
+
+export function claudePath(...segments: string[]): string {
+  return path.join(harnessDir('claude'), ...segments)
+}
+
+// ─── Stats Cache ─────────────────────────────────────────────────────────────
+
+export async function readStatsCache(): Promise<StatsCache | null> {
+  try {
+    const raw = await fs.readFile(claudePath('stats-cache.json'), 'utf-8')
+    return JSON.parse(raw) as StatsCache
+  } catch {
+    return null
+  }
+}
+
+// ─── Sessions from Project JSONL (primary source) ──────────────────────────────
+
+export async function parseSessionFile(filePath: string, sessionId: string): Promise<SessionRecord | null> {
+  let startTime = ''
+  let lastTime = ''
+  const toolCounts: Record<string, number> = {}
+  let firstPrompt = ''
+  let hasTaskAgent = false
+  let hasMcp = false
+  let hasWebSearch = false
+  let hasWebFetch = false
+  const messageHours: number[] = []
+  const userMessageTimestamps: string[] = []
+  let cwd: string | undefined
+  let slugName: string | undefined
+  let aiTitle: string | undefined
+  let ccVersion: string | undefined
+  let gitBranch: string | undefined
+  const gitBranches: Record<string, number> = {}
+  let hasCompaction = false
+  let hasThinking = false
+  // Tokens, models and message counts are recorded per turn; the session's
+  // counters are derived from the ledger after the loop
+  const ledger = new LedgerBuilder()
+  // One turn per API response, not per line: a response is written as one line
+  // per content block, each repeating its usage (lib/response-usage.ts).
+  const responses = new ResponseTracker()
+  const turnOf = new Map<string, number>()
+  const rateLimitHits: RateLimitHit[] = []
+  let costState: CostState | null = null
+  let callsAfterCostState = false
+
+  try {
+    // Stream line-by-line rather than buffering the whole file — session
+    // JSONLs can be tens of MB each
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: 'utf-8' }),
+      crlfDelay: Infinity,
+    })
+    for await (const line of rl) {
+      if (!line) continue
+      try {
+        const obj = JSON.parse(line) as Record<string, unknown>
+        const ts = obj.timestamp as string
+        if (ts) {
+          if (!startTime) startTime = ts
+          lastTime = ts
+        }
+        if (!cwd && typeof obj.cwd === 'string') cwd = obj.cwd
+        if (!slugName && typeof obj.slug === 'string') slugName = obj.slug
+        // ai-title lines repeat as the title is refined; the last one wins
+        if (obj.type === 'ai-title' && typeof obj.aiTitle === 'string') aiTitle = obj.aiTitle
+        if (!ccVersion && typeof obj.version === 'string') ccVersion = obj.version
+        if (typeof obj.gitBranch === 'string' && obj.gitBranch && obj.gitBranch !== 'HEAD') {
+          if (!gitBranch) gitBranch = obj.gitBranch
+          gitBranches[obj.gitBranch] = (gitBranches[obj.gitBranch] ?? 0) + 1
+        }
+        if (obj.type === 'system' && (obj as { subtype?: string }).subtype === 'compact_boundary') {
+          hasCompaction = true
+        }
+        if (obj.type === 'cost-state') {
+          costState = readCostState(obj)
+          callsAfterCostState = false
+        }
+        if (obj.type === 'user') {
+          if (ts) {
+            const d = new Date(ts)
+            if (!isNaN(d.getTime())) {
+              messageHours.push(d.getHours())
+              userMessageTimestamps.push(ts)
+              ledger.addUser(d.getTime())
+            }
+          }
+          const content = (obj as { message?: { content?: string | unknown[] } }).message?.content
+          if (typeof content === 'string' && !firstPrompt) firstPrompt = stripXmlTags(content).slice(0, 500)
+          else if (Array.isArray(content)) {
+            const text = content.find((c: unknown) => typeof c === 'object' && c !== null && (c as { type?: string }).type === 'text')
+            if (text && typeof (text as { text?: string }).text === 'string' && !firstPrompt) {
+              firstPrompt = stripXmlTags((text as { text: string }).text).slice(0, 500)
+            }
+          }
+        }
+        if (obj.type === 'assistant') {
+          const msg = (obj as { message?: { model?: string; usage?: Record<string, number>; content?: unknown[] } }).message
+          let turnInput = 0, turnOutput = 0, turnCacheRead = 0, turnCacheWrite = 0, turnCacheWrite1h = 0
+          let turnToolCalls = 0
+          const quota = (obj as { quotaLimits?: { status?: string; rateLimitType?: string; resetsAt?: number } }).quotaLimits
+          if (quota?.status === 'rejected' && quota.rateLimitType === 'five_hour' && typeof quota.resetsAt === 'number' && ts) {
+            const at = new Date(ts).getTime()
+            if (!isNaN(at)) rateLimitHits.push({ ts: at, resets_at: quota.resetsAt * 1000 })
+          }
+          if (msg?.model && !msg.model.startsWith('<')) callsAfterCostState = true
+          const { isNew, delta } = responses.add(obj, msg?.usage)
+          turnInput = delta.input_tokens ?? 0
+          turnOutput = delta.output_tokens ?? 0
+          turnCacheRead = delta.cache_read_input_tokens ?? 0
+          turnCacheWrite = delta.cache_creation_input_tokens ?? 0
+          turnCacheWrite1h = oneHourWrite(delta)
+          const content = msg?.content
+          if (Array.isArray(content)) {
+            for (const c of content) {
+              const item = c as { type?: string; name?: string }
+              if (item.type === 'thinking') hasThinking = true
+              if (item.type === 'tool_use' && item.name) {
+                turnToolCalls++
+                toolCounts[item.name] = (toolCounts[item.name] ?? 0) + 1
+                if (item.name.startsWith('Task') || item.name === 'TodoWrite' || item.name === 'Agent' || item.name === 'Workflow') hasTaskAgent = true
+                if (item.name.startsWith('mcp__')) hasMcp = true
+                if (item.name === 'WebSearch') hasWebSearch = true
+                if (item.name === 'WebFetch') hasWebFetch = true
+              }
+            }
+          }
+          const key = responseKey(obj)
+          const turn = key === null ? undefined : turnOf.get(key)
+          if (!isNew && turn !== undefined) {
+            ledger.growTurn(turn, { input: turnInput, output: turnOutput, cacheRead: turnCacheRead, cacheWrite: turnCacheWrite, cacheWrite1h: turnCacheWrite1h, toolCalls: turnToolCalls })
+          } else if (ts) {
+            const i = ledger.addTurn({
+              ts: new Date(ts).getTime(),
+              model: msg?.model ?? NO_MODEL,
+              input: turnInput, output: turnOutput, cacheRead: turnCacheRead, cacheWrite: turnCacheWrite, cacheWrite1h: turnCacheWrite1h,
+              toolCalls: turnToolCalls,
+            })
+            if (key !== null && i >= 0) turnOf.set(key, i)
+          }
+        }
+      } catch { /* skip malformed line */ }
+    }
+  } catch {
+    return null
+  }
+
+  if (!startTime) return null
+
+  const start = new Date(startTime).getTime()
+  const end = lastTime ? new Date(lastTime).getTime() : start
+  const durationMinutes = (end - start) / 60_000
+  const turns = ledger.build()
+  const reported = reportedCost(costState, callsAfterCostState, turns.ts)
+  const m = ledgerMetrics(turns, null, durationMinutes, reported)
+
+  const session: ParsedSession = {
+    session_id: sessionId,
+    harness: 'claude',
+    project_path: cwd ?? '',
+    start_time: startTime,
+    last_activity: lastTime || startTime,
+    duration_minutes: durationMinutes,
+    user_message_count: m.user_message_count,
+    assistant_message_count: m.assistant_message_count,
+    tool_counts: toolCounts,
+    languages: {},
+    git_commits: 0,
+    git_pushes: 0,
+    input_tokens: m.input_tokens,
+    output_tokens: m.output_tokens,
+    cache_creation_input_tokens: m.cache_creation_input_tokens,
+    cache_read_input_tokens: m.cache_read_input_tokens,
+    first_prompt: firstPrompt,
+    user_interruptions: 0,
+    user_response_times: [],
+    tool_errors: 0,
+    tool_error_categories: {},
+    uses_task_agent: hasTaskAgent,
+    uses_mcp: hasMcp,
+    uses_web_search: hasWebSearch,
+    uses_web_fetch: hasWebFetch,
+    lines_added: 0,
+    lines_removed: 0,
+    files_modified: 0,
+    message_hours: messageHours,
+    user_message_timestamps: userMessageTimestamps,
+    model_usage: m.model_usage,
+    reported_cost: reported,
+    cwd,
+    slug_name: slugName,
+    ai_title: aiTitle,
+    cc_version: ccVersion,
+    git_branch: gitBranch,
+    git_branches: gitBranches,
+    has_compaction: hasCompaction,
+    has_thinking: hasThinking,
+  }
+  return { session, ledger: turns, rate_limit_hits: rateLimitHits, cost_state: { state: costState, callsAfter: callsAfterCostState } }
+}
+
+// ─── Sub-agent usage ─────────────────────────────────────────────────────────
+// Transcripts under <dir>/<session>/subagents/ are folded into the session's counters.
+
+function hasTokens(u: TurnUsage): boolean {
+  return u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens > 0
+}
+
+/** The .meta.json sidecar names the model an agent was started with; read uncached since it can land after the transcript's last write */
+async function resolveUnknownModel(file: SubagentFile, fallbackModel: string): Promise<string> {
+  return (await readAgentMeta(file.meta)).model ?? fallbackModel
+}
+
+/** Model carrying most of the orchestrator's tokens; a fork inherits its parent's */
+function dominantModel(modelUsage: Record<string, ModelUsage>): string | undefined {
+  let best: string | undefined
+  let bestTokens = -1
+  for (const [model, u] of Object.entries(modelUsage)) {
+    const tokens = u.inputTokens + u.outputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens
+    if (tokens > bestTokens) { best = model; bestTokens = tokens }
+  }
+  return best
+}
+
+/** An orchestrator quiet for this long is assumed to have no agent running, so its fold is served from foldedCache */
+const QUIET_SESSION_MS = 5 * 60 * 1000
+
+const foldedCache = new Map<string, { mtimeMs: number; promise: Promise<SessionRecord> }>()
+
+/** Fold every sub-agent transcript of a session into its ledger, and re-derive the counters; only called for sessions with a `<session>/` folder */
+async function withAgentUsage(record: SessionRecord, jsonlPath: string): Promise<SessionRecord> {
+  const { session } = record
+  const files = await listSubagentFiles(jsonlPath, session.session_id)
+  if (files.length === 0) return record
+
+  const scans = await mapPool(files, 4, async (f) => {
+    try {
+      return (await scanFile(f.jsonl)).scan
+    } catch {
+      return null
+    }
+  })
+
+  // A model-less orchestrator has nothing in model_usage; bucket its turns
+  // under the fallback model, like sessionCost() prices them
+  const orchestratorModeled = hasModeledTurns(record.ledger)
+  const ledger = LedgerBuilder.from(record.ledger, m => (m === NO_MODEL && !orchestratorModeled ? FALLBACK_MODEL : m))
+  const fallbackModel = (orchestratorModeled && dominantModel(session.model_usage ?? {})) || FALLBACK_MODEL
+
+  let agentCount = 0
+  for (let i = 0; i < files.length; i++) {
+    const scan = scans[i]
+    if (!scan || scan.assistantCount === 0) continue
+    agentCount++
+    // Model-less agent turns take the sidecar model (or the parent's)
+    const unknownModel = hasTokens(scan.unattributedUsage) ? await resolveUnknownModel(files[i], fallbackModel) : fallbackModel
+    ledger.appendAgent(scan.ledger, unknownModel)
+  }
+  if (agentCount === 0) return record
+
+  const folded = ledger.build()
+  // The agents' turns count too: one older than the cost-state's start means a process died unreported
+  const reported = reportedCost(record.cost_state?.state ?? null, record.cost_state?.callsAfter ?? false, folded.ts)
+  const m = ledgerMetrics(folded, null, session.duration_minutes, reported)
+  return {
+    ...record,
+    ledger: folded,
+    session: {
+      ...session,
+      input_tokens: m.input_tokens,
+      output_tokens: m.output_tokens,
+      cache_read_input_tokens: m.cache_read_input_tokens,
+      cache_creation_input_tokens: m.cache_creation_input_tokens,
+      model_usage: m.model_usage,
+      agent_model_usage: m.agent_model_usage,
+      reported_cost: reported,
+      agent_count: agentCount,
+      uses_task_agent: true,
+    },
+  }
+}
+
+/** withAgentUsage, served from foldedCache for sessions that have gone quiet */
+function foldAgentUsage(record: SessionRecord, jsonlPath: string, mtimeMs: number, now: number): Promise<SessionRecord> {
+  if (now - mtimeMs < QUIET_SESSION_MS) {
+    foldedCache.delete(jsonlPath)
+    return withAgentUsage(record, jsonlPath)
+  }
+  const cached = foldedCache.get(jsonlPath)
+  if (cached && cached.mtimeMs === mtimeMs) return cached.promise
+  const promise = withAgentUsage(record, jsonlPath).catch(err => {
+    foldedCache.delete(jsonlPath)
+    throw err
+  })
+  foldedCache.set(jsonlPath, { mtimeMs, promise })
+  return promise
+}
+
+/**
+ * The uncached part of a Claude listing, run over every parsed transcript: sub-agent
+ * transcripts are folded into each session's token counters, model_usage,
+ * agent_model_usage and agent_count, and each session's project_path is the cwd
+ * recorded by any session of its project directory.
+ */
+export async function finishClaudeSessions(
+  parsed: Array<{ entry: SessionFileEntry; record: SessionRecord | null }>,
+  now: number,
+): Promise<SessionRecord[]> {
+  // Evict folds for sessions that no longer exist
+  const seen = new Set(parsed.map(p => p.entry.path))
+  for (const key of foldedCache.keys()) {
+    if (!seen.has(key)) foldedCache.delete(key)
+  }
+  const sessionDirs = [...new Set(parsed.filter(p => p.entry.hasSessionDir).map(p => p.entry.path.slice(0, -'.jsonl'.length) + path.sep))]
+  pruneScanCache(key => sessionDirs.some(dir => key.startsWith(dir)))
+
+  const folded = await Promise.all(parsed.map(async ({ entry, record }) => ({
+    slug: entry.slug ?? '',
+    record: record && entry.hasSessionDir ? await foldAgentUsage(record, entry.path, entry.mtimeMs, now) : record,
+  })))
+
+  // Build slug → cwd map from any session that captured one
+  const slugCwd = new Map<string, string>()
+  for (const { slug, record } of folded) {
+    if (record?.session.cwd && !slugCwd.has(slug)) slugCwd.set(slug, record.session.cwd)
+  }
+  // Keep the cross-call cache warm for resolveProjectPath callers, and evict
+  // entries for slugs that vanished or whose scan yielded no cwd this pass.
+  const knownSlugs = new Set(folded.map(f => f.slug))
+  for (const slug of projectCwdCache.keys()) {
+    if (!knownSlugs.has(slug) || !slugCwd.has(slug)) projectCwdCache.delete(slug)
+  }
+  for (const [slug, cwd] of slugCwd) projectCwdCache.set(slug, cwd)
+
+  const results: SessionRecord[] = []
+  for (const { slug, record } of folded) {
+    if (!record) continue
+    results.push({
+      ...record,
+      session: { ...record.session, project_path: slugCwd.get(slug) ?? slugToPath(slug) },
+    })
+  }
+  return results
+}
+
+// ─── Live Sessions (~/.claude/sessions/*.json) ───────────────────────────────
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Read currently running Claude Code processes from ~/.claude/sessions/*.json.
+ * Files can linger after a process exits, so each entry is verified against a
+ * live pid before being returned.
+ */
+export async function readLiveSessions(): Promise<LiveSession[]> {
+  const dir = claudePath('sessions')
+  try {
+    const files = await fs.readdir(dir)
+    const results: LiveSession[] = []
+    await Promise.all(
+      files
+        .filter(f => f.endsWith('.json'))
+        .map(async f => {
+          try {
+            const raw = await fs.readFile(path.join(dir, f), 'utf-8')
+            const parsed = JSON.parse(raw) as LiveSession
+            if (parsed.pid && parsed.sessionId && isPidAlive(parsed.pid)) {
+              results.push(parsed)
+            }
+          } catch { /* skip malformed */ }
+        })
+    )
+    return results.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+  } catch {
+    return []
+  }
+}
+
+// ─── Projects ─────────────────────────────────────────────────────────────────
+
+export async function listProjectSlugs(): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(claudePath('projects'), { withFileTypes: true })
+    return entries
+      .filter(e => e.isDirectory())
+      .map(e => e.name)
+  } catch {
+    return []
+  }
+}
+
+export async function listProjectJSONLFiles(slug: string): Promise<string[]> {
+  return (await listProjectEntries(slug)).files
+}
+
+/** Session JSONLs of a project plus the names of its sub-directories, from one readdir */
+export async function listProjectEntries(slug: string): Promise<{ files: string[]; dirs: Set<string> }> {
+  try {
+    const dir = claudePath('projects', slug)
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    const files: string[] = []
+    const dirs = new Set<string>()
+    for (const e of entries) {
+      if (e.isDirectory()) dirs.add(e.name)
+      else if (e.name.endsWith('.jsonl')) files.push(path.join(dir, e.name))
+    }
+    return { files, dirs }
+  } catch {
+    return { files: [], dirs: new Set() }
+  }
+}
+
+/** Find which project slug contains a given session ID */
+export async function findSessionSlug(sessionId: string): Promise<string | null> {
+  const slugs = await listProjectSlugs()
+  for (const slug of slugs) {
+    const files = await listProjectJSONLFiles(slug)
+    for (const f of files) {
+      if (path.basename(f).startsWith(sessionId)) return slug
+    }
+  }
+  return null
+}
+
+/** Find the JSONL file path for a given session ID */
+export async function findSessionJSONL(sessionId: string): Promise<string | null> {
+  const slugs = await listProjectSlugs()
+  for (const slug of slugs) {
+    const files = await listProjectJSONLFiles(slug)
+    for (const f of files) {
+      if (path.basename(f, '.jsonl') === sessionId) return f
+    }
+  }
+  return null
+}
+
+// ─── Plans ───────────────────────────────────────────────────────────────────
+
+export interface PlanFile {
+  path: string
+  name: string
+  content: string
+  mtime: string
+}
+
+export async function readPlans(): Promise<PlanFile[]> {
+  const results: PlanFile[] = []
+  try {
+    const dir = claudePath('plans')
+    const files = await fs.readdir(dir)
+    for (const f of files.filter((x) => x.endsWith('.md'))) {
+      try {
+        const fullPath = path.join(dir, f)
+        const [raw, stat] = await Promise.all([
+          fs.readFile(fullPath, 'utf-8'),
+          fs.stat(fullPath),
+        ])
+        results.push({
+          path: fullPath,
+          name: f.replace(/\.md$/, ''),
+          content: raw,
+          mtime: stat.mtime.toISOString(),
+        })
+      } catch { /* skip */ }
+    }
+    return results.sort((a, b) => b.mtime.localeCompare(a.mtime))
+  } catch {
+    return []
+  }
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+export interface TaskItem {
+  id?: string
+  content: string
+  description?: string
+  status?: string
+  activeForm?: string
+}
+
+export interface TaskSession {
+  sessionId: string
+  path: string
+  tasks: TaskItem[]
+  mtime: string
+}
+
+interface RawTaskFile {
+  id?: string
+  subject?: string
+  description?: string
+  activeForm?: string
+  status?: string
+  [key: string]: unknown
+}
+
+/** Current task storage written by the TaskCreate / TaskUpdate tools that
+ *  replaced TodoWrite: ~/.claude/tasks/<session-id>/<taskId>.json, one file
+ *  per task with {id, subject, description, status, ...}. Each session
+ *  directory is surfaced as one TaskSession; mtime is the latest task mtime
+ *  in the session so recency sorting stays meaningful. */
+export async function readTaskSessions(): Promise<TaskSession[]> {
+  const results: TaskSession[] = []
+  try {
+    const dir = claudePath('tasks')
+    const sessions = await fs.readdir(dir, { withFileTypes: true })
+    await mapPool(sessions.filter((d) => d.isDirectory()), 8, async (session) => {
+      try {
+        const sessionDir = path.join(dir, session.name)
+        const files = (await fs.readdir(sessionDir)).filter((x) => x.endsWith('.json'))
+        if (!files.length) return
+
+        const tasks: TaskItem[] = []
+        let latestMtime = new Date(0)
+
+        for (const f of files) {
+          try {
+            const fullPath = path.join(sessionDir, f)
+            const [raw, stat] = await Promise.all([
+              fs.readFile(fullPath, 'utf-8'),
+              fs.stat(fullPath),
+            ])
+            const task = JSON.parse(raw) as RawTaskFile
+            if (!task || task.status === 'deleted') continue
+            tasks.push({
+              id: task.id,
+              content: task.subject ?? task.description ?? f,
+              description: task.description,
+              status: task.status,
+              activeForm: task.activeForm,
+            })
+            if (stat.mtime > latestMtime) latestMtime = stat.mtime
+          } catch { /* skip unreadable task */ }
+        }
+        if (!tasks.length) return
+
+        tasks.sort((a, b) => {
+          const an = parseInt(a.id ?? '', 10) || 0
+          const bn = parseInt(b.id ?? '', 10) || 0
+          if (an !== bn) return an - bn
+          return (a.id ?? a.content).localeCompare(b.id ?? b.content)
+        })
+        results.push({
+          sessionId: session.name,
+          path: sessionDir,
+          tasks,
+          mtime: latestMtime.toISOString(),
+        })
+      } catch { /* skip unreadable session dir */ }
+    })
+    return results.sort((a, b) => b.mtime.localeCompare(a.mtime))
+  } catch {
+    return []
+  }
+}
+
+// ─── History ─────────────────────────────────────────────────────────────────
+
+export async function readHistory(limit = 200): Promise<HistoryEntry[]> {
+  const entries: HistoryEntry[] = []
+  try {
+    const raw = await fs.readFile(claudePath('history.jsonl'), 'utf-8')
+    const lines = raw.split(/\r?\n/).filter(Boolean)
+    for (const line of lines.slice(-limit)) {
+      try {
+        entries.push(JSON.parse(line) as HistoryEntry)
+      } catch { /* skip */ }
+    }
+  } catch { /* file missing */ }
+  return entries
+}
+
+// ─── Skills ───────────────────────────────────────────────────────────────────
+
+export interface SkillInfo {
+  name: string
+  description: string
+  triggers: string
+  hasSkillMd: boolean
+}
+
+export async function readSkills(): Promise<SkillInfo[]> {
+  const skillsDir = claudePath('skills')
+  try {
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true })
+    const dirs = entries.filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'nebius-skills-workspace')
+    const results: SkillInfo[] = []
+    for (const dir of dirs) {
+      const skillMdPath = path.join(skillsDir, dir.name, 'SKILL.md')
+      let description = ''
+      let triggers = ''
+      let hasSkillMd = false
+      try {
+        const raw = await fs.readFile(skillMdPath, 'utf-8')
+        hasSkillMd = true
+        const descMatch = raw.match(/^#\s+(.+)$/m)
+        if (descMatch) description = descMatch[1].trim()
+        const triggerMatch = raw.match(/(?:TRIGGER|trigger)[^\n]*\n([\s\S]*?)(?:\n#{1,3}\s|\n---|\n\*\*DO NOT|$)/m)
+        if (triggerMatch) triggers = triggerMatch[1].replace(/\s+/g, ' ').trim().slice(0, 200)
+      } catch { /* no SKILL.md */ }
+      results.push({ name: dir.name, description, triggers, hasSkillMd })
+    }
+    return results.sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
+}
+
+// ─── Plugins ──────────────────────────────────────────────────────────────────
+
+export interface PluginInfo {
+  id: string
+  name: string
+  marketplace: string
+  scope: string
+  version: string
+  installedAt: string
+  lastUpdated?: string
+}
+
+export async function readInstalledPlugins(): Promise<PluginInfo[]> {
+  try {
+    const raw = await fs.readFile(claudePath('plugins', 'installed_plugins.json'), 'utf-8')
+    const json = JSON.parse(raw) as { plugins: Record<string, Array<{ scope: string; version: string; installedAt: string; lastUpdated?: string }>> }
+    return Object.entries(json.plugins).flatMap(([id, installs]) => {
+      const at = id.lastIndexOf('@')
+      const name = at > 0 ? id.slice(0, at) : id
+      const marketplace = at > 0 ? id.slice(at + 1) : ''
+      return installs.map(inst => ({
+        id,
+        name,
+        marketplace,
+        scope: inst.scope,
+        version: inst.version,
+        installedAt: inst.installedAt,
+        lastUpdated: inst.lastUpdated,
+      }))
+    })
+  } catch {
+    return []
+  }
+}
+
+// ─── Config markdown dirs (agents, commands, rules, output-styles) ───────────
+
+export interface ConfigFileInfo {
+  name: string
+  description: string
+  mtime: string
+}
+
+/**
+ * List the markdown entries of a ~/.claude config directory. Both single-file
+ * entries (commands/foo.md) and directory entries with an entrypoint
+ * (skills/foo/SKILL.md) are supported. The description comes from frontmatter
+ * `description:` when present, otherwise the first heading or text line.
+ */
+export async function readConfigDir(dirName: string, entrypoint?: string): Promise<ConfigFileInfo[]> {
+  const dir = claudePath(dirName)
+  const results: ConfigFileInfo[] = []
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    await Promise.all(entries.map(async e => {
+      if (e.name.startsWith('.')) return
+      let filePath: string
+      let name: string
+      if (e.isDirectory()) {
+        if (!entrypoint) return
+        filePath = path.join(dir, e.name, entrypoint)
+        name = e.name
+      } else if (e.name.endsWith('.md')) {
+        filePath = path.join(dir, e.name)
+        name = e.name.replace(/\.md$/, '')
+      } else {
+        return
+      }
+      try {
+        const [raw, stat] = await Promise.all([fs.readFile(filePath, 'utf-8'), fs.stat(filePath)])
+        const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+        let description = ''
+        if (fmMatch) {
+          const descMatch = fmMatch[1].match(/^description:\s*(.+)$/m)
+          if (descMatch) description = descMatch[1].trim().replace(/^["']|["']$/g, '')
+        }
+        if (!description) {
+          const body = fmMatch ? raw.slice(fmMatch[0].length) : raw
+          const line = body.split(/\r?\n/).find(l => l.trim())
+          description = line ? line.replace(/^#+\s*/, '').trim() : ''
+        }
+        results.push({ name, description: description.slice(0, 300), mtime: stat.mtime.toISOString() })
+      } catch { /* no entrypoint file */ }
+    }))
+    return results.sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+export async function readSettings(): Promise<Record<string, unknown>> {
+  try {
+    const raw = await fs.readFile(claudePath('settings.json'), 'utf-8')
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
+}
+
+// ─── Memory ───────────────────────────────────────────────────────────────────
+
+export type MemoryType = 'user' | 'feedback' | 'project' | 'reference' | 'index' | 'unknown'
+
+export interface MemoryEntry {
+  file: string
+  projectSlug: string
+  projectPath: string
+  name: string
+  type: MemoryType
+  description: string
+  body: string
+  mtime: string
+  isIndex: boolean
+}
+
+function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!match) return { meta: {}, body: raw }
+  const meta: Record<string, string> = {}
+  for (const line of match[1].split('\n')) {
+    const colon = line.indexOf(':')
+    if (colon === -1) continue
+    const key = line.slice(0, colon).trim()
+    const val = line.slice(colon + 1).trim()
+    if (key) meta[key] = val
+  }
+  return { meta, body: match[2].trim() }
+}
+
+export async function readMemories(): Promise<MemoryEntry[]> {
+  const results: MemoryEntry[] = []
+  try {
+    const slugs = await listProjectSlugs()
+    await Promise.all(
+      slugs.map(async slug => {
+        const memDir = claudePath('projects', slug, 'memory')
+        try {
+          const files = await fs.readdir(memDir)
+          const mdFiles = files.filter(f => f.endsWith('.md'))
+          await Promise.all(
+            mdFiles.map(async file => {
+              try {
+                const fullPath = path.join(memDir, file)
+                const [raw, stat] = await Promise.all([
+                  fs.readFile(fullPath, 'utf-8'),
+                  fs.stat(fullPath),
+                ])
+                const isIndex = file === 'MEMORY.md'
+                const { meta, body } = parseFrontmatter(raw)
+                const projectPath = slugToPath(slug)
+                const h1Match = body.match(/^#\s+(.+)$/m)
+                const titleFromBody = h1Match ? h1Match[1].trim() : null
+                results.push({
+                  file,
+                  projectSlug: slug,
+                  projectPath,
+                  name: meta.name ?? titleFromBody ?? (isIndex ? 'Memory Index' : file.replace(/\.md$/, '')),
+                  type: (meta.type as MemoryType) ?? (isIndex ? 'index' : 'unknown'),
+                  description: meta.description ?? '',
+                  body,
+                  mtime: stat.mtime.toISOString(),
+                  isIndex,
+                })
+              } catch { /* skip */ }
+            })
+          )
+        } catch { /* no memory dir */ }
+      })
+    )
+  } catch { /* skip */ }
+  return results.sort((a, b) => b.mtime.localeCompare(a.mtime))
+}
+
+// ─── Storage size ─────────────────────────────────────────────────────────────
+
+export async function getClaudeStorageBytes(): Promise<number> {
+  async function dirSize(dirPath: string): Promise<number> {
+    let total = 0
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true })
+      await Promise.all(
+        entries.map(async e => {
+          const full = path.join(dirPath, e.name)
+          if (e.isDirectory()) {
+            total += await dirSize(full)
+          } else {
+            try {
+              const stat = await fs.stat(full)
+              total += stat.size
+            } catch { /* skip */ }
+          }
+        })
+      )
+    } catch { /* skip inaccessible dirs */ }
+    return total
+  }
+  return dirSize(harnessDir('claude'))
+}

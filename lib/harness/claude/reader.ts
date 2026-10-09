@@ -378,10 +378,11 @@ export async function finishClaudeSessions(
   const sessionDirs = [...new Set(parsed.filter(p => p.entry.hasSessionDir).map(p => p.entry.path.slice(0, -'.jsonl'.length) + path.sep))]
   pruneScanCache(key => sessionDirs.some(dir => key.startsWith(dir)))
 
-  const folded = await Promise.all(parsed.map(async ({ entry, record }) => ({
+  // Bounded like the parse: each fold reads a session's sub-agent transcripts
+  const folded = await mapPool(parsed, 16, async ({ entry, record }) => ({
     slug: entry.slug ?? '',
     record: record && entry.hasSessionDir ? await foldAgentUsage(record, entry.path, entry.mtimeMs, now) : record,
-  })))
+  }))
 
   // Build slug → cwd map from any session that captured one
   const slugCwd = new Map<string, string>()

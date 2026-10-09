@@ -38,6 +38,10 @@ describe('Codex sessions through the API', () => {
     const body = await (await GET(new Request('http://localhost/api/costs?range=all'))).json()
     expect(body.models.map((m: { harness: string; model: string }) => `${m.harness}:${m.model}`).sort())
       .toEqual(['claude:claude-sonnet-5-5', 'codex:gpt-5.3-codex', 'codex:gpt-5.5'])
+    expect(body.daily.some((d: { by_harness: Record<string, number> }) => d.by_harness.codex > 0)).toBe(true)
+    for (const day of body.daily as Array<{ total: number; by_harness: Record<string, number> }>) {
+      expect(Object.values(day.by_harness).reduce((a, b) => a + b, 0)).toBeCloseTo(day.total)
+    }
   })
 
   it('categorizes Codex tools with the Codex map', async () => {

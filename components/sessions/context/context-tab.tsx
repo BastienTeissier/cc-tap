@@ -99,7 +99,7 @@ export function ContextTab({ sessionId, replay, timeline, window: win, onWindowC
   )
 
   // ─── Series, filtered to the window
-  const orchestratorPoints = useMemo(() => buildContextSeries(replay.turns, limits), [replay, limits])
+  const orchestratorPoints = useMemo(() => buildContextSeries(replay.turns, limits, replay.context_window), [replay, limits])
   const marks = useMemo(() => buildContextMarks(replay.compactions, replay.turns), [replay])
   // The band describes the whole session's threshold, so it ignores the window
   const band = useMemo(() => autocompactBand(marks, orchestratorPoints), [marks, orchestratorPoints])
@@ -119,7 +119,7 @@ export function ContextTab({ sessionId, replay, timeline, window: win, onWindowC
         key: id,
         label: agentById.get(id)?.description ?? id.slice(0, 8),
         color: FILTER_COLORS[i % FILTER_COLORS.length],
-        points: pointsInWindow(buildContextSeries(data.turns, limits), win?.from, win?.to),
+        points: pointsInWindow(buildContextSeries(data.turns, limits, data.context_window), win?.from, win?.to),
       })
     })
     return out
@@ -287,8 +287,10 @@ export function ContextTab({ sessionId, replay, timeline, window: win, onWindowC
       )}
 
       <p className="text-xs text-muted-foreground">
-        Context size is the whole prompt of each turn: input, cache read and cache write. The maximum comes from the model of that turn
-        ({formatTokens(FALLBACK_CONTEXT_LIMIT)} when the model is unknown). Override a model in <code>~/.cc-lens/context.json</code>.
+        Context size is the whole prompt of each turn: input, cache read and cache write.{' '}
+        {replay.context_window
+          ? <>The maximum is the {formatTokens(replay.context_window)} window the session reported.</>
+          : <>The maximum comes from the model of that turn ({formatTokens(FALLBACK_CONTEXT_LIMIT)} when the model is unknown). Override a model in <code>~/.cc-lens/context.json</code>.</>}
       </p>
     </div>
   )

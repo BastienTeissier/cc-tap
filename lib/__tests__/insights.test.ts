@@ -88,6 +88,20 @@ describe('buildInsightsReport', () => {
     expect(insight!.affected_sessions).toBe(1)
     // Opus 4.8: 2M*$5 + 0.2M*$25 = $15; Sonnet 5: 2M*$2 + 0.2M*$10 = $6 → $9 saved
     expect(insight!.monthly_savings_usd).toBeCloseTo(9, 0)
+    expect(insight!.detail).toContain('Sonnet 5.5')
+  })
+
+  it('suggests the economy model of the session vendor', () => {
+    const codex = makeSession({
+      user_message_count: 2,
+      duration_minutes: 5,
+      model_usage: { 'gpt-5.5': usage({ inputTokens: 2_000_000, outputTokens: 200_000 }) },
+    })
+    const insight = buildInsightsReport([codex], 30, NOW).insights.find(i => i.id === 'premium-model-light-sessions')
+    // gpt-5.5: 2M*$5 + 0.2M*$30 = $16; gpt-5-mini: 2M*$0.25 + 0.2M*$2 = $0.90 → $15.10 saved
+    expect(insight!.monthly_savings_usd).toBeCloseTo(15.1, 1)
+    expect(insight!.detail).toContain('gpt-5-mini')
+    expect(insight!.detail).not.toContain('Sonnet')
   })
 
   it('does not flag long or agentic sessions for model downgrade', () => {

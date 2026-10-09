@@ -1,6 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { modelLabel } from '@/lib/model-label'
-import { FALLBACK_MODEL } from '@/lib/pricing'
+import { FALLBACK_MODEL, pricingNote } from '@/lib/pricing'
 import type { ModelCostBreakdown } from '@/types/claude'
 import { AlertTriangle } from 'lucide-react'
 
@@ -8,9 +8,9 @@ interface Props {
   models: ModelCostBreakdown[]
 }
 
-/** Renders nothing unless a model was charged at another entry's rates */
+/** Renders nothing unless a model was charged at another entry's rates, or not at all */
 export function UnpricedModelsAlert({ models }: Props) {
-  const unpriced = models.filter(m => m.priced_as)
+  const unpriced = models.filter((m): m is ModelCostBreakdown & { priced_as: string } => m.priced_as !== undefined)
   if (unpriced.length === 0) return null
 
   return (
@@ -23,7 +23,7 @@ export function UnpricedModelsAlert({ models }: Props) {
         <ul className="space-y-0.5">
           {unpriced.map(m => (
             <li key={m.model}>
-              {modelLabel(m.model)} (<code>{m.model}</code>) is charged at <code>{m.priced_as}</code> rates
+              {modelLabel(m.model)} (<code>{m.model}</code>) is {pricingNote(m.priced_as).text}
               {m.priced_as === FALLBACK_MODEL ? ', the default for unknown models' : ''}.
             </li>
           ))}

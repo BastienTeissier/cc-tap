@@ -45,6 +45,32 @@ const DEFAULT_PRICING_PER_MTOK: Record<string, ModelPricing> = {
   'claude-haiku-4-5':  { input: 1.00, output:  5.00, cacheWrite: 1.25,  cacheRead: 0.10 },
   // Haiku 3.5 — retired, $0.80 / $4
   'claude-haiku-3-5':  { input: 0.80, output:  4.00, cacheWrite: 1.00,  cacheRead: 0.08 },
+
+  // OpenAI — standard tier, source: developers.openai.com/api/docs/pricing as of
+  // 2026-10. OpenAI bills no cache write, so cacheWrite (and cacheWrite1h) is the
+  // input rate; cacheRead is the cached-input rate. The long-context rates (prompts
+  // over 272k tokens on gpt-5.5 / gpt-5.4) are not modelled. Codex variants the
+  // page does not list (gpt-5-codex, gpt-5.2-codex, gpt-5.1-codex-max) take their
+  // base model's rates by prefix.
+  'gpt-5.5':            { input: 5.00, output: 30.00,  cacheWrite: 5.00, cacheWrite1h: 5.00, cacheRead: 0.50 },
+  'gpt-5.5-pro':        { input: 30.00, output: 180.00, cacheWrite: 30.00, cacheWrite1h: 30.00, cacheRead: 30.00 },
+  'gpt-5.4':            { input: 2.50, output: 15.00,  cacheWrite: 2.50, cacheWrite1h: 2.50, cacheRead: 0.25 },
+  'gpt-5.4-pro':        { input: 30.00, output: 180.00, cacheWrite: 30.00, cacheWrite1h: 30.00, cacheRead: 30.00 },
+  'gpt-5.4-mini':       { input: 0.75, output:  4.50,  cacheWrite: 0.75, cacheWrite1h: 0.75, cacheRead: 0.075 },
+  'gpt-5.4-nano':       { input: 0.20, output:  1.25,  cacheWrite: 0.20, cacheWrite1h: 0.20, cacheRead: 0.02 },
+  'gpt-5.3-codex':      { input: 1.75, output: 14.00,  cacheWrite: 1.75, cacheWrite1h: 1.75, cacheRead: 0.175 },
+  'gpt-5.2':            { input: 1.75, output: 14.00,  cacheWrite: 1.75, cacheWrite1h: 1.75, cacheRead: 0.175 },
+  'gpt-5.2-pro':        { input: 21.00, output: 168.00, cacheWrite: 21.00, cacheWrite1h: 21.00, cacheRead: 21.00 },
+  'gpt-5.1':            { input: 1.25, output: 10.00,  cacheWrite: 1.25, cacheWrite1h: 1.25, cacheRead: 0.125 },
+  // Not on the page: the mini tier, as gpt-5-mini
+  'gpt-5.1-codex-mini': { input: 0.25, output:  2.00,  cacheWrite: 0.25, cacheWrite1h: 0.25, cacheRead: 0.025 },
+  'gpt-5':              { input: 1.25, output: 10.00,  cacheWrite: 1.25, cacheWrite1h: 1.25, cacheRead: 0.125 },
+  'gpt-5-pro':          { input: 15.00, output: 120.00, cacheWrite: 15.00, cacheWrite1h: 15.00, cacheRead: 15.00 },
+  'gpt-5-mini':         { input: 0.25, output:  2.00,  cacheWrite: 0.25, cacheWrite1h: 0.25, cacheRead: 0.025 },
+  'gpt-5-nano':         { input: 0.05, output:  0.40,  cacheWrite: 0.05, cacheWrite1h: 0.05, cacheRead: 0.005 },
+  'gpt-4.1':            { input: 2.00, output:  8.00,  cacheWrite: 2.00, cacheWrite1h: 2.00, cacheRead: 0.50 },
+  'gpt-4.1-mini':       { input: 0.40, output:  1.60,  cacheWrite: 0.40, cacheWrite1h: 0.40, cacheRead: 0.10 },
+  'gpt-4o-mini':        { input: 0.15, output:  0.60,  cacheWrite: 0.15, cacheWrite1h: 0.15, cacheRead: 0.075 },
 }
 
 function toPerToken(p: ModelPricing): Required<ModelPricing> {
@@ -131,24 +157,53 @@ function matchesPricingKey(model: string, key: string): boolean {
   return model === key || model.startsWith(`${key}-`)
 }
 
-/** Priced when no model is known: an unrecognised id, or a session whose assistant lines carry no model */
+/** Priced when no model is known: an unrecognised Claude id, or a session whose assistant lines carry no model */
 export const FALLBACK_MODEL = 'claude-opus-4-8'
 
+export type Vendor = 'anthropic' | 'openai' | 'unknown'
+
+/** Who makes a model, from its id */
+export function vendorOf(model: string): Vendor {
+  if (model.startsWith('claude-')) return 'anthropic'
+  if (/^(gpt-|o[134](-|$)|codex)/.test(model)) return 'openai'
+  return 'unknown'
+}
+
+/** The entry an unrecognised id of each vendor is charged at; an unknown vendor has none */
+const FALLBACK_BY_VENDOR: Partial<Record<Vendor, string>> = {
+  anthropic: FALLBACK_MODEL,
+  openai: 'gpt-5.5',
+}
+
 /** The pricing entry whose rates this model is charged at: its own, the
- *  longest prefix entry, or FALLBACK_MODEL when nothing matches. */
+ *  longest prefix entry of the same vendor, or that vendor's fallback
+ *  (FALLBACK_MODEL for an empty id). '' when nothing prices it: the model
+ *  counts as free. */
 export function pricedAs(model: string): string {
   const table = getPricingTable()
   if (table[model]) return model
-  return cachedKeysLongestFirst.find(key => matchesPricingKey(model, key)) ?? FALLBACK_MODEL
+  // No model at all: a Claude transcript line or sub-agent that names none
+  if (!model) return FALLBACK_MODEL
+  const vendor = vendorOf(model)
+  return cachedKeysLongestFirst.find(key => vendorOf(key) === vendor && matchesPricingKey(model, key))
+    ?? FALLBACK_BY_VENDOR[vendor] ?? ''
 }
+
+// A dated OpenAI snapshot: gpt-5-2025-08-07
+const SNAPSHOT_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /** True when the table has an entry for this model's own release, so its
  *  cost is not an estimate. A prefix entry only counts when it names the
  *  same release: claude-opus-4-5-20251101 is claude-opus-4-5's, while
- *  claude-opus-5-5 merely borrows claude-opus-5's rates. */
+ *  claude-opus-5-5 merely borrows claude-opus-5's rates. Other vendors' ids
+ *  do not parse as releases, so only a dated snapshot counts: gpt-4.1-nano
+ *  and gpt-5.2-codex merely borrow gpt-4.1's and gpt-5.2's rates. */
 export function hasKnownPricing(model: string): boolean {
   const table = getPricingTable()
   if (table[model]) return true
+  if (vendorOf(model) !== 'anthropic') {
+    return cachedKeysLongestFirst.some(key => model.startsWith(`${key}-`) && SNAPSHOT_DATE.test(model.slice(key.length + 1)))
+  }
   const release = parseModel(model)
   return cachedKeysLongestFirst.some(key => {
     if (!matchesPricingKey(model, key)) return false
@@ -165,8 +220,18 @@ export function unpricedModels(usage: Record<string, ModelUsage> | undefined): U
     .map(model => ({ model, priced_as: pricedAs(model) }))
 }
 
+/** How the cost views word an UnpricedModel's `priced_as`: borrowed rates make
+ *  an estimate, '' means no rates at all */
+export function pricingNote(pricedAs: string): { label: string; text: string } {
+  return pricedAs
+    ? { label: 'est.', text: `charged at ${pricedAs} rates` }
+    : { label: 'unpriced', text: 'unpriced, counted as $0' }
+}
+
+const UNPRICED: Required<ModelPricing> = { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }
+
 function getPricing(model: string): Required<ModelPricing> {
-  return getPricingTable()[pricedAs(model)]
+  return getPricingTable()[pricedAs(model)] ?? UNPRICED
 }
 
 /** A cache write, its 1-hour part at the 1-hour rate and the rest at the 5-minute one */

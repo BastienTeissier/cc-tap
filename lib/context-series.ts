@@ -41,8 +41,9 @@ export interface AutocompactBand {
  *  reading, and neither does a synthetic one: Claude Code writes those locally
  *  — a usage limit, a missing credit — with every token count at zero. Plotting
  *  them would read as an empty context rather than as no reading at all, so
- *  both are left out. The rest of the repo skips '<synthetic>' the same way. */
-export function buildContextSeries(turns: readonly ReplayTurn[], limits: ContextLimits): ContextPoint[] {
+ *  both are left out. The rest of the repo skips '<synthetic>' the same way.
+ *  `reportedWindow`, when the harness logged one, replaces the table's. */
+export function buildContextSeries(turns: readonly ReplayTurn[], limits: ContextLimits, reportedWindow?: number): ContextPoint[] {
   const points: ContextPoint[] = []
   // Counts every assistant turn, plotted or not, so the number stays in step
   // with the Replay card, which counts them all.
@@ -58,7 +59,7 @@ export function buildContextSeries(turns: readonly ReplayTurn[], limits: Context
     const tokens = (t.usage.input_tokens ?? 0)
       + (t.usage.cache_read_input_tokens ?? 0)
       + (t.usage.cache_creation_input_tokens ?? 0)
-    const limit = contextLimit(t.model, limits)
+    const limit = contextLimit(t.model, limits, reportedWindow)
     points.push({
       turn: ordinal,
       time: new Date(t.timestamp).getTime(),

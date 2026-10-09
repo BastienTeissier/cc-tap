@@ -1,5 +1,7 @@
 import type { SessionMeta, ModelUsage } from '@/types/claude'
 import { getPricing, estimateTotalCostFromModel, cacheEfficiency, sessionCost } from '@/lib/pricing'
+import { economyModelFor } from '@/lib/model-tiers'
+import { modelLabel } from '@/lib/model-label'
 
 // Savings insights: each detector looks at a window of sessions and, where it
 // can, attaches a dollar figure. Estimates are deliberately conservative —
@@ -64,8 +66,6 @@ function inputPricePerMTok(model: string): number {
 }
 
 const PREMIUM_INPUT_THRESHOLD = 4 // $/MTok — Opus 4.5 and up (Opus 5.5 is $4)
-// Current Sonnet: the model /model would actually pick as the cheaper default
-const ECONOMY_MODEL = 'claude-sonnet-5-5'
 const TARGET_CACHE_HIT_RATE = 0.9
 
 // ─── Detectors ───────────────────────────────────────────────────────────────
@@ -101,32 +101,40 @@ function detectLowCacheHitRate(byModel: Record<string, ModelUsage>, monthlyFacto
 function detectPremiumModelOnLightSessions(sessions: SessionLike[], monthlyFactor: number): Insight | null {
   let savings = 0
   let count = 0
+  // The economy models the estimate priced, named in the suggestion
+  const economyModels = new Set<string>()
   for (const s of sessions) {
     if (!s.model_usage) continue
     const light = s.user_message_count <= 3 && s.duration_minutes < 15 && !s.uses_task_agent
     if (!light) continue
     let premiumCost = 0
     let economyCost = 0
+    const sessionEconomy = new Set<string>()
     for (const [model, usage] of Object.entries(s.model_usage)) {
       if (model === '<synthetic>') continue
       if (inputPricePerMTok(model) < PREMIUM_INPUT_THRESHOLD) continue
+      const economy = economyModelFor(model)
+      if (!economy) continue
       premiumCost += estimateTotalCostFromModel(model, usage)
-      economyCost += estimateTotalCostFromModel(ECONOMY_MODEL, usage)
+      economyCost += estimateTotalCostFromModel(economy, usage)
+      sessionEconomy.add(economy)
     }
     if (premiumCost > economyCost) {
       savings += premiumCost - economyCost
       count++
+      for (const m of sessionEconomy) economyModels.add(m)
     }
   }
   const monthly = savings * monthlyFactor
   if (count === 0 || monthly < 1) return null
+  const economy = [...economyModels].map(modelLabel).join(' or ')
   return {
     id: 'premium-model-light-sessions',
     severity: monthly > 20 ? 'high' : 'medium',
     title: `${count} short sessions ran on a premium model`,
     detail:
-      `Sessions with three or fewer prompts, under 15 minutes, and no agent work usually do fine on Sonnet. ` +
-      `Running these on Sonnet instead would save about ${fmtUsd(monthly)}/month. ` +
+      `Sessions with three or fewer prompts, under 15 minutes, and no agent work usually do fine on ${economy}. ` +
+      `Running these on ${economy} instead would save about ${fmtUsd(monthly)}/month. ` +
       `Switch per session with /model, or keep a cheaper default and escalate when a task needs it.`,
     monthly_savings_usd: monthly,
     affected_sessions: count,

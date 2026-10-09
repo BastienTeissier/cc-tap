@@ -27,6 +27,12 @@ describe('buildContextSeries', () => {
     expect(s.map(p => p.tokens)).toEqual([100_000, 50_000])
   })
 
+  it('sizes every point by the window the session reported', () => {
+    const s = buildContextSeries(turns, T, 400_000)
+    expect(s.map(p => p.limit)).toEqual([400_000, 400_000])
+    expect(s[0].pct).toBeCloseTo(25)
+  })
+
   it('counts what was written to the cache, not only what was read', () => {
     // A cold cache after a /login or a resume writes the whole prompt instead
     // of reading it. The context did not shrink, so the reading must not either.

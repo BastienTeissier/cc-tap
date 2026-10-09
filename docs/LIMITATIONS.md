@@ -26,7 +26,7 @@
 ## Codex CLI and Copilot CLI
 
 - Live Capture and the Raw API tab are Claude-only.
-- History, todos, plans, memory and settings pages read Claude Code files only.
+- History, todos, plans, memory, settings and workspace pages read Claude Code files only, and so does the overview's live sessions panel.
 - The Agents tab is Claude-only. Copilot sub-agent calls are counted in tokens and cost, without a timeline.
 - Codex rollouts written before Sept 2025 have no session metadata and are skipped.
 - Codex compaction markers have not been observed yet, so Codex sessions may never show a compaction.

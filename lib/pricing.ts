@@ -176,11 +176,14 @@ const FALLBACK_BY_VENDOR: Partial<Record<Vendor, string>> = {
 }
 
 /** The pricing entry whose rates this model is charged at: its own, the
- *  longest prefix entry of the same vendor, or that vendor's fallback.
- *  '' when nothing prices it: the model counts as free. */
+ *  longest prefix entry of the same vendor, or that vendor's fallback
+ *  (FALLBACK_MODEL for an empty id). '' when nothing prices it: the model
+ *  counts as free. */
 export function pricedAs(model: string): string {
   const table = getPricingTable()
   if (table[model]) return model
+  // No model at all: a Claude transcript line or sub-agent that names none
+  if (!model) return FALLBACK_MODEL
   const vendor = vendorOf(model)
   return cachedKeysLongestFirst.find(key => vendorOf(key) === vendor && matchesPricingKey(model, key))
     ?? FALLBACK_BY_VENDOR[vendor] ?? ''

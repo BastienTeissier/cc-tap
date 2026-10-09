@@ -113,6 +113,11 @@ describe('pricedAs', () => {
     expect(pricedAs('claude-opus-5-9')).toBe('claude-opus-5')
     expect(pricedAs('claude-sonnet-6')).toBe(FALLBACK_MODEL)
   })
+
+  it('prices a missing model at the Claude fallback, not at zero', () => {
+    expect(pricedAs('')).toBe(FALLBACK_MODEL)
+    expect(getPricing('').input * MTOK).toBeCloseTo(5)
+  })
 })
 
 describe('1-hour cache writes', () => {

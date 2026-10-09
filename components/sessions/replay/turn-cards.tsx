@@ -8,7 +8,7 @@ import { UserToolResult } from './user-tool-result'
 import { formatCost, formatTokens, formatDurationMs } from '@/lib/decode'
 import { modelLabel } from '@/lib/model-label'
 import type { ReplayTurn, CompactionEvent } from '@/types/claude'
-import type { Harness } from '@/types/harness'
+import { HARNESS_LABELS, type Harness } from '@/types/harness'
 import type { TurnMatch } from '@/lib/replay-search'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -115,7 +115,7 @@ function AssistantTurnCardView({ turn, harness, turnNumber, toolResults, match }
   const isThinkingOpen = thinkingOpen ?? inThinking
   const isExpanded = expanded ?? (match?.text ?? false)
 
-  const modelShort = turn.model ? modelLabel(turn.model) : 'Claude'
+  const modelShort = turn.model ? modelLabel(turn.model) : HARNESS_LABELS[harness]
 
   const textToShow = turn.text ?? ''
   const needsExpandToggle = textToShow.length > ASSISTANT_COLLAPSE_THRESHOLD

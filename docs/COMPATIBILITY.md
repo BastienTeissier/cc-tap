@@ -19,7 +19,7 @@ Each harness is read from its own directory. A harness whose directory is missin
 | Codex CLI | `~/.codex` | `CODEX_HOME` |
 | Copilot CLI | `~/.copilot` | `COPILOT_HOME` |
 
-All three are read-only: `cc-lens` never writes to a harness directory or database.
+Codex CLI and Copilot CLI are read-only: `cc-lens` never writes to their directories or database. Claude Code's directory is read-only too, except for memory files edited from the Memory page.
 
 ## Supported Claude Code Data
 

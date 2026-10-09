@@ -242,7 +242,7 @@ export function pricingNote(pricedAs: string): { label: string; text: string } {
 // Copilot billing"). Copilot CLI's AI units are those credits: a usage row's
 // token_details_json costPerBatch values add up to its total_nano_aiu, at rates
 // that come to list prices per MTok at $0.01 each.
-export const AIU_USD = 0.01
+const AIU_USD = 0.01
 const AIU_USD_KEY = 'copilot.aiu_usd'
 
 /** USD per Copilot AI unit: pricing.json's "copilot.aiu_usd" when set (a number,

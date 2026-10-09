@@ -279,15 +279,15 @@ async function withPricingFile<T>(file: unknown, run: (p: typeof import('@/lib/p
     vi.resetModules()
     return run(await import('@/lib/pricing'))
   } finally {
-    process.env.CC_LENS_CONFIG_DIR = previous
+    if (previous === undefined) delete process.env.CC_LENS_CONFIG_DIR
+    else process.env.CC_LENS_CONFIG_DIR = previous
     await fs.rm(dir, { recursive: true, force: true })
   }
 }
 
 describe('Copilot AI units', () => {
   it('prices AI units at $0.01 by default', async () => {
-    const { copilotCostUSD, AIU_USD } = await import('@/lib/pricing')
-    expect(AIU_USD).toBe(0.01)
+    const { copilotCostUSD } = await import('@/lib/pricing')
     expect(copilotCostUSD(21_278_710_000)).toBeCloseTo(0.2127871)
   })
 

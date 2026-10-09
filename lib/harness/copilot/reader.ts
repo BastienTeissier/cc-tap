@@ -63,11 +63,10 @@ export function rowTokens(r: CopilotUsageRow) {
 
 /**
  * What Copilot billed for the session, per model: each call's AI units at the AIU rate.
- * Without rows the checkpoint's total goes to `model`. Null when nothing was billed
+ * Without rows the checkpoint's `nanoAiu` goes to `model`. Null when nothing was billed
  * or Copilot is priced from the token table.
  */
-export function copilotReportedCost(rows: CopilotUsageRow[], checkpointNanoAiu: number, model: string): ReportedCost | null {
-  const nanoAiu = rows.length ? rows.reduce((sum, r) => sum + (r.total_nano_aiu ?? 0), 0) : checkpointNanoAiu
+function copilotReportedCost(rows: CopilotUsageRow[], nanoAiu: number, model: string): ReportedCost | null {
   const total = copilotCostUSD(nanoAiu)
   if (total === null || nanoAiu <= 0) return null
   const by_model: Record<string, number> = {}
@@ -199,7 +198,7 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
   // Without rows in the DB, the last checkpoint still carries the session's AI units
   const nanoAiu = rows?.length ? rows.reduce((sum, r) => sum + (r.total_nano_aiu ?? 0), 0) : checkpointNanoAiu
   // The ledger spreads it over the turns, so per-model and windowed costs add up to it
-  const reported = copilotReportedCost(rows ?? [], checkpointNanoAiu, model)
+  const reported = copilotReportedCost(rows ?? [], nanoAiu, model)
   const m = ledgerMetrics(built, null, durationMinutes, reported)
 
   const session: ParsedSession = {

@@ -3,8 +3,18 @@ import { getSessions } from '@/lib/harness/session-store'
 import { readStatsCache, readHistory } from '@/lib/harness/claude/reader'
 import { harnessesFromSearch, filterByHarness } from '@/lib/harness-filter'
 import type { ExportPayload, SessionMeta } from '@/types/claude'
+import type { Harness } from '@/types/harness'
 
 export const dynamic = 'force-dynamic'
+
+/** Claude's stats-cache and prompt history: Claude-only data, so none when the filter leaves Claude out */
+function readClaudeRollups(hf: Harness[] | null) {
+  const claude = !hf || hf.includes('claude')
+  return Promise.all([
+    claude ? readStatsCache() : null,
+    claude ? readHistory(10_000) : [],
+  ])
+}
 
 function filterSessionsByDateRange(
   sessions: SessionMeta[],
@@ -28,12 +38,9 @@ export async function GET(req: Request) {
   const to = url.searchParams.get('to') || undefined
   const dateRange = from || to ? { from, to } : undefined
 
-  const [stats, all, history] = await Promise.all([
-    readStatsCache(),
-    getSessions(),
-    readHistory(10_000),
-  ])
-  const sessions = filterByHarness(all, harnessesFromSearch(url.search))
+  const hf = harnessesFromSearch(url.search)
+  const [[stats, history], all] = await Promise.all([readClaudeRollups(hf), getSessions()])
+  const sessions = filterByHarness(all, hf)
 
   const filteredSessions = filterSessionsByDateRange(sessions, dateRange)
 
@@ -49,12 +56,9 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
   const { dateRange } = body as { dateRange?: { from?: string; to?: string } }
 
-  const [stats, all, history] = await Promise.all([
-    readStatsCache(),
-    getSessions(),
-    readHistory(10_000),
-  ])
-  const sessions = filterByHarness(all, harnessesFromSearch(new URL(req.url).search))
+  const hf = harnessesFromSearch(new URL(req.url).search)
+  const [[stats, history], all] = await Promise.all([readClaudeRollups(hf), getSessions()])
+  const sessions = filterByHarness(all, hf)
 
   const filteredSessions = filterSessionsByDateRange(sessions, dateRange)
 

@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import fs from 'fs/promises'
+import path from 'path'
 import { makeClaudeHome, claudeTranscript } from './helpers/harness-home'
 
 const SESSION_ID = 'e1e1e1e1-0000-0000-0000-000000000000'
@@ -8,6 +10,8 @@ beforeAll(async () => {
   home = await makeClaudeHome([
     { id: SESSION_ID, slug: '-Users-test-proj', jsonl: claudeTranscript({ cwd: '/Users/test/proj', start: '2026-06-01T10:00:00.000Z' }) },
   ])
+  await fs.writeFile(path.join(home.claudeDir, 'history.jsonl'), JSON.stringify({ display: 'a prompt', timestamp: 1 }) + '\n')
+  await fs.writeFile(path.join(home.claudeDir, 'stats-cache.json'), JSON.stringify({ version: 1 }))
 })
 
 afterAll(() => home.cleanup())
@@ -35,6 +39,18 @@ describe('GET/POST /api/export', () => {
     const body = await (await POST(new Request('http://localhost/api/export?h=codex', { method: 'POST', body: '{}' }))).json()
     expect(body.sessions).toEqual([])
     expect((await (await GET(new Request('http://localhost/api/export?h=codex'))).json()).sessionCount).toBe(0)
+  })
+
+  it('leaves out Claude\'s stats and prompt history when Claude is filtered out', async () => {
+    const { POST, GET } = await import('@/app/api/export/route')
+    const all = await (await POST(new Request('http://localhost/api/export', { method: 'POST', body: '{}' }))).json()
+    expect(all.history).toHaveLength(1)
+    expect(all.stats).not.toBeNull()
+
+    const codex = await (await POST(new Request('http://localhost/api/export?h=codex', { method: 'POST', body: '{}' }))).json()
+    expect(codex.history).toEqual([])
+    expect(codex.stats).toBeNull()
+    expect(await (await GET(new Request('http://localhost/api/export?h=codex'))).json()).toMatchObject({ historyEntries: 0, hasStatsCache: false })
   })
 })
 

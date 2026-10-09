@@ -369,19 +369,21 @@ function foldAgentUsage(record: SessionRecord, jsonlPath: string, mtimeMs: numbe
 export async function finishClaudeSessions(
   parsed: Array<{ entry: SessionFileEntry; record: SessionRecord | null }>,
   now: number,
+  /** The transcript has a `<session>/` folder next to it (sub-agent transcripts) */
+  hasSessionDir: (jsonlPath: string) => boolean,
 ): Promise<SessionRecord[]> {
   // Evict folds for sessions that no longer exist
   const seen = new Set(parsed.map(p => p.entry.path))
   for (const key of foldedCache.keys()) {
     if (!seen.has(key)) foldedCache.delete(key)
   }
-  const sessionDirs = [...new Set(parsed.filter(p => p.entry.hasSessionDir).map(p => p.entry.path.slice(0, -'.jsonl'.length) + path.sep))]
+  const sessionDirs = [...new Set(parsed.filter(p => hasSessionDir(p.entry.path)).map(p => p.entry.path.slice(0, -'.jsonl'.length) + path.sep))]
   pruneScanCache(key => sessionDirs.some(dir => key.startsWith(dir)))
 
   // Bounded like the parse: each fold reads a session's sub-agent transcripts
   const folded = await mapPool(parsed, 16, async ({ entry, record }) => ({
     slug: entry.slug ?? '',
-    record: record && entry.hasSessionDir ? await foldAgentUsage(record, entry.path, entry.mtimeMs, now) : record,
+    record: record && hasSessionDir(entry.path) ? await foldAgentUsage(record, entry.path, entry.mtimeMs, now) : record,
   }))
 
   // Build slug → cwd map from any session that captured one

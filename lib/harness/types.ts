@@ -48,10 +48,8 @@ export interface SessionFileEntry {
   path: string
   mtimeMs: number
   cwd?: string
-  /** Claude: the project directory the file sits in */
+  /** The project's slug: Claude's project dir name, pathToSlug(cwd) elsewhere */
   slug?: string
-  /** Claude: a `<session>/` folder sits next to the file (sub-agent transcripts) */
-  hasSessionDir?: boolean
 }
 
 /** What every harness reader implements; lib/harness/session-store.ts drives it */

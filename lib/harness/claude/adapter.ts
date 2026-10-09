@@ -12,6 +12,9 @@ import {
   parseSessionFile,
 } from './reader'
 
+/** Transcripts with a `<session>/` folder next to them, from the latest listing */
+let withSessionDir = new Set<string>()
+
 /** Claude Code: ~/.claude/projects/<slug>/<session>.jsonl */
 export const claudeAdapter: HarnessAdapter = {
   harness: 'claude',
@@ -19,6 +22,7 @@ export const claudeAdapter: HarnessAdapter = {
 
   async listSessionFiles() {
     const entries: SessionFileEntry[] = []
+    const sessionDirs = new Set<string>()
     await Promise.all((await listProjectSlugs()).map(async (slug) => {
       const { files, dirs } = await listProjectEntries(slug)
       await Promise.all(files.map(async (filePath) => {
@@ -31,16 +35,18 @@ export const claudeAdapter: HarnessAdapter = {
             path: filePath,
             mtimeMs: stat.mtimeMs,
             slug,
-            hasSessionDir: dirs.has(sessionId),
           })
+          if (dirs.has(sessionId)) sessionDirs.add(filePath)
         } catch { /* file vanished between readdir and stat */ }
       }))
     }))
+    // Swapped whole, so a concurrent listing never sees a half-built set
+    withSessionDir = sessionDirs
     return entries
   },
 
   parseSession: (entry) => parseSessionFile(entry.path, entry.session_id),
-  finishSessions: finishClaudeSessions,
+  finishSessions: (parsed, now) => finishClaudeSessions(parsed, now, p => withSessionDir.has(p)),
   parseReplay: (entry) => parseSessionReplay(entry.path, entry.session_id),
   categorizeTool,
   storageBytes: getClaudeStorageBytes,

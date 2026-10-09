@@ -8,7 +8,7 @@
 > breakpoints, message history, SSE response. Useful for debugging unexpected Claude Code
 > behavior and for understanding how the CLI assembles its context window.
 
-Local analytics dashboard for Claude Code. No cloud, no telemetry, just your `~/.claude/` data, visualized.
+Local analytics dashboard for Claude Code, Codex CLI and Copilot CLI. No cloud, no telemetry, just your `~/.claude/`, `~/.codex/` and `~/.copilot/` data, visualized in one dashboard.
 
 ```bash
 npx cc-tap
@@ -122,6 +122,7 @@ Import is intentionally preview-only right now. It shows which sessions are new 
 - Page shortcuts: `g` plus a page key, for example `g s` for sessions, `g p` for projects, `g c` for costs.
 - Responsive layout with desktop sidebar, collapsible navigation, mobile bottom nav, and mobile menu.
 - Light and dark themes.
+- Harness filter: when more than one harness is detected, the top bar filters every page by harness. It is kept in the URL as `?h=claude,codex`.
 
 ## Multiple Claude Profiles
 
@@ -141,7 +142,17 @@ On Windows PowerShell:
 $env:CLAUDE_CONFIG_DIR="C:\Users\you\.claude-work"; npx cc-tap
 ```
 
-The active config directory is shown in the CLI banner on launch.
+The CLI banner lists each harness and its directory on launch.
+
+## Codex CLI and Copilot CLI
+
+`cc-tap` also reads Codex CLI sessions from `~/.codex/` and Copilot CLI sessions from `~/.copilot/`, merged with Claude Code's on the same pages. Each session carries a harness badge, and a project worked on with several harnesses has one card. Override the directories with `CODEX_HOME` and `COPILOT_HOME`:
+
+```bash
+CODEX_HOME=~/work/.codex COPILOT_HOME=~/work/.copilot npx cc-tap
+```
+
+A missing directory is skipped. See [Compatibility](./docs/COMPATIBILITY.md) for the files read and [Known limitations](./docs/LIMITATIONS.md) for the Claude-only pages.
 
 ## Open a Given Page
 
@@ -158,7 +169,7 @@ Only a plain app path is accepted (a leading `/`, letters, digits, `/ _ - . ~`, 
 ### Prerequisites
 
 - Node.js 24+ (the dashboard uses the built-in `node:sqlite` module)
-- Claude Code with local data in `~/.claude/`
+- Local data from Claude Code (`~/.claude/`), Codex CLI (`~/.codex/`) or Copilot CLI (`~/.copilot/`)
 
 ### Development
 
@@ -193,7 +204,7 @@ npm run lint
 
 ## Data Sources
 
-`cc-tap` reads local Claude Code files directly:
+`cc-tap` reads local harness files directly:
 
 - `~/.claude/projects/<slug>/*.jsonl`: session JSONL and replay data
 - `~/.claude/projects/<slug>/<session>/subagents/`: sub-agent transcripts, including `workflows/wf_*/` for Workflow runs
@@ -205,9 +216,14 @@ npm run lint
 - `~/.claude/plans/`: saved plan files
 - `~/.claude/projects/*/memory/`: project memory files
 - `~/.claude/settings.json`: settings, skills, plugins, and MCP config
+- `~/.codex/sessions/` and `~/.codex/archived_sessions/`: Codex CLI rollouts
+- `~/.copilot/session-state/<id>/`: Copilot CLI events and workspace
+- `~/.copilot/session-store.db`: Copilot CLI per-call tokens and AI units (read-only)
 
 Dashboard data refreshes every 5 seconds while the app is open.
 
 ## Cost Estimates
 
-Claude Code stores token counts and model identifiers, not final billing totals. `cc-tap` estimates cost using the pricing table in `lib/pricing.ts`. If provider pricing changes, update that file to keep estimates current.
+Claude Code and Codex CLI store token counts and model identifiers, not final billing totals. `cc-tap` estimates their cost using the pricing table in `lib/pricing.ts`, which covers Anthropic and OpenAI models. If provider pricing changes, update that file to keep estimates current.
+
+Copilot CLI records the AI units it billed for each call. `cc-tap` prices them at $0.01 each (one GitHub AI credit); set `"copilot.aiu_usd"` in `~/.cc-lens/pricing.json` to change that rate.

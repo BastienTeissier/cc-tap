@@ -1,7 +1,7 @@
 import type { ReplayData, ReplayTurn, ToolCall, TurnUsage } from '@/types/claude'
 import { estimateCostFromUsage } from '@/lib/pricing'
 import { readJSONLLines } from '@/lib/jsonl'
-import { rowTokens, type CopilotEvent } from './reader'
+import { eventTime, rowTokens, type CopilotEvent } from './reader'
 import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
 
 /** A tool result's text: its content, or the error Copilot reported */
@@ -74,7 +74,7 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
   await readJSONLLines(eventsPath, (raw) => {
     const e = raw as CopilotEvent
     const d = e.data
-    const ts = e.timestamp ?? ''
+    const ts = eventTime(e)
     switch (e.type) {
       case 'session.start':
         if (typeof d?.sessionId === 'string') id = d.sessionId

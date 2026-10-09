@@ -15,6 +15,11 @@ import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CopilotEvent = { type?: string; timestamp?: string; id?: string; data?: any }
 
+/** The event's time, or '' when missing or unparseable */
+export function eventTime(e: CopilotEvent): string {
+  return typeof e.timestamp === 'string' && Number.isFinite(Date.parse(e.timestamp)) ? e.timestamp : ''
+}
+
 /** Top-level `key: value` pairs of workspace.yaml, quotes removed. Enough for the flat
  *  file Copilot writes; nested or multi-line values are not read. */
 export function parseWorkspaceYaml(text: string): Record<string, string> {
@@ -75,7 +80,7 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
   await readJSONLLines(eventsPath, (raw) => {
     const e = raw as CopilotEvent
     const d = e.data
-    const ts = typeof e.timestamp === 'string' && Number.isFinite(Date.parse(e.timestamp)) ? e.timestamp : ''
+    const ts = eventTime(e)
     lineCount++
     if (ts) {
       if (!startTime) startTime = ts

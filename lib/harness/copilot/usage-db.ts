@@ -70,6 +70,12 @@ export function usageFor(sessionId: string): CopilotUsageRow[] | null {
   }
 }
 
+/** The main agent's calls indexed by turn: the nth is the nth assistant.turn_start.
+ *  turn_index is always 0 in schema v8, so call order is the only join key. */
+export function mainRowsByTurn(rows: CopilotUsageRow[]): CopilotUsageRow[] {
+  return rows.filter(r => !r.agent_id)
+}
+
 /** Time of each session's latest billed call, by session id; empty when the DB is absent or unreadable.
  *  One query per scan: a write for one session must not date the others. */
 export function lastUsageMs(): Map<string, number> {

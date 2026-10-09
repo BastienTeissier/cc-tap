@@ -5,7 +5,7 @@ import { LedgerBuilder, NO_MODEL, ledgerMetrics } from '@/lib/session-ledger'
 import { readJSONLLines } from '@/lib/jsonl'
 import { pathToSlug } from '@/lib/decode'
 import { isMcpTool } from '@/lib/tool-categories'
-import { usageFor, type CopilotUsageRow } from './usage-db'
+import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
 
 // Copilot CLI sessions (~/.copilot/session-state/<id>/): events.jsonl holds one
 // `{type, data, id, timestamp, parentId}` event per line and gives the structure;
@@ -46,11 +46,6 @@ export function rowTokens(r: CopilotUsageRow) {
     cacheRead,
     cacheWrite,
   }
-}
-
-/** The main agent's calls, oldest first: one per assistant.turn_start */
-export function mainRows(rows: CopilotUsageRow[]): CopilotUsageRow[] {
-  return rows.filter(r => !r.agent_id)
 }
 
 export async function parseCopilotSession(eventsPath: string, sessionId: string): Promise<SessionRecord | null> {
@@ -144,10 +139,9 @@ export async function parseCopilotSession(eventsPath: string, sessionId: string)
   cwd = workspace.cwd || cwd
   gitBranch = workspace.branch || gitBranch
 
-  // Tokens come from the DB: the nth main-agent row is the nth turn (turn_index is
-  // always 0 in schema v8); sub-agent rows join as agent turns
+  // Tokens come from the DB; sub-agent rows join as agent turns
   const rows = usageFor(id)
-  const main = mainRows(rows ?? [])
+  const main = mainRowsByTurn(rows ?? [])
   const ledger = new LedgerBuilder()
   for (const at of userTs) ledger.addUser(at)
   const count = Math.max(turns.length, main.length)

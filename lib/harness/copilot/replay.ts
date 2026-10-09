@@ -1,8 +1,8 @@
 import type { ReplayData, ReplayTurn, ToolCall, TurnUsage } from '@/types/claude'
 import { estimateCostFromUsage } from '@/lib/pricing'
 import { readJSONLLines } from '@/lib/jsonl'
-import { mainRows, rowTokens, type CopilotEvent } from './reader'
-import { usageFor } from './usage-db'
+import { rowTokens, type CopilotEvent } from './reader'
+import { mainRowsByTurn, usageFor, type CopilotUsageRow } from './usage-db'
 
 /** A tool result's text: its content, or the error Copilot reported */
 function resultText(d: CopilotEvent['data']): string {
@@ -27,7 +27,7 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
   let model: string | undefined
   let totalCost = 0
   let turnCount = 0
-  let rows: ReturnType<typeof mainRows> | null = null
+  let rows: CopilotUsageRow[] | null = null
   let pending: { timestamp: string; model?: string; text: string[]; thinking: string[]; hasThinking: boolean; calls: ToolCall[] } | null = null
   let results: NonNullable<ReplayTurn['tool_results']> = []
 
@@ -37,7 +37,7 @@ export async function parseCopilotReplay(eventsPath: string, sessionId: string):
   }
   const flush = (endTs?: string) => {
     if (!pending) return
-    rows ??= mainRows(usageFor(id) ?? [])
+    rows ??= mainRowsByTurn(usageFor(id) ?? [])
     const row = rows[turnCount++]
     let usage: TurnUsage | undefined
     if (row) {

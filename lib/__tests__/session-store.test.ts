@@ -76,6 +76,16 @@ describe('session store', () => {
     }
   })
 
+  it('finds the file of a session by id', async () => {
+    const entry = await store.findSessionEntry(SESSION_ID)
+    expect(entry).toMatchObject({ harness: 'claude', session_id: SESSION_ID, slug: '-Users-test-proj' })
+    expect(entry?.path).toContain(`${SESSION_ID}.jsonl`)
+  })
+
+  it('finds no file for an unknown session id', async () => {
+    expect(await store.findSessionEntry('does-not-exist')).toBeNull()
+  })
+
   it('keeps the old reader module working as a re-export', async () => {
     const reader = await import('@/lib/claude-reader')
     expect((await reader.getSessions()).map(s => s.session_id)).toEqual([SESSION_ID, OTHER_ID])

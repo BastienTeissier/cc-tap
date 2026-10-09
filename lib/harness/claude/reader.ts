@@ -496,17 +496,6 @@ export async function findSessionSlug(sessionId: string): Promise<string | null>
   return null
 }
 
-/** Find the JSONL file path for a given session ID */
-export async function findSessionJSONL(sessionId: string): Promise<string | null> {
-  const slugs = await listProjectSlugs()
-  for (const slug of slugs) {
-    const files = await listProjectJSONLFiles(slug)
-    for (const f of files) {
-      if (path.basename(f, '.jsonl') === sessionId) return f
-    }
-  }
-  return null
-}
 
 // ─── Plans ───────────────────────────────────────────────────────────────────
 

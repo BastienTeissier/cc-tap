@@ -75,3 +75,12 @@ export async function getAllParsedSessions(): Promise<ParsedSession[]> {
 export async function getSessions(): Promise<ParsedSession[]> {
   return getAllParsedSessions()
 }
+
+/** The file of a session, from whichever detected harness holds it */
+export async function findSessionEntry(sessionId: string): Promise<SessionFileEntry | null> {
+  for (const adapter of adapters()) {
+    const entry = (await listOrEmpty(adapter)).find(e => e.session_id === sessionId)
+    if (entry) return entry
+  }
+  return null
+}

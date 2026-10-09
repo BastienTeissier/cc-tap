@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { harnessesFromSearch, harnessesToSearch, filterByHarness, withHarnessParam } from '@/lib/harness-filter'
+import { harnessesFromSearch, harnessesToSearch, filterByHarness, withHarnessParam, nextHarnesses } from '@/lib/harness-filter'
 
 describe('harnessesFromSearch', () => {
   it('reads no filter when h is absent or empty', () => {
@@ -54,5 +54,25 @@ describe('withHarnessParam', () => {
   it('keeps an all-unknown filter empty on the API side, not "all"', () => {
     const url = new URL(withHarnessParam('/api/costs', 'foo'), 'http://localhost')
     expect(harnessesFromSearch(url.search)).toEqual([])
+  })
+})
+
+describe('nextHarnesses', () => {
+  const detected = ['claude', 'codex', 'copilot'] as const
+  const next = (selected: Parameters<typeof nextHarnesses>[0], h: Parameters<typeof nextHarnesses>[2]) =>
+    nextHarnesses(selected, [...detected], h)
+
+  it('keeps only the clicked harness when all are selected', () => {
+    expect(next(null, 'codex')).toEqual(['codex'])
+  })
+
+  it('toggles a harness once a filter is set, in detected order', () => {
+    expect(next(['codex'], 'claude')).toEqual(['claude', 'codex'])
+    expect(next(['claude', 'codex'], 'codex')).toEqual(['claude'])
+  })
+
+  it('clears the filter when nothing or everything ends up selected', () => {
+    expect(next(['codex'], 'codex')).toBeNull()
+    expect(next(['claude', 'codex'], 'copilot')).toBeNull()
   })
 })

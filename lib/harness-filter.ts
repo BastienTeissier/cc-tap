@@ -33,3 +33,11 @@ export function matchesHarness(item: { harness: Harness }, hs: Harness[] | null)
 export function filterByHarness<T extends { harness: Harness }>(items: T[], hs: Harness[] | null): T[] {
   return hs ? items.filter(i => matchesHarness(i, hs)) : items
 }
+
+/** The selection after clicking `h`: from "all", the click picks `h` alone; otherwise it toggles `h`. Empty or full means all (null). */
+export function nextHarnesses(selected: Harness[] | null, detected: Harness[], h: Harness): Harness[] | null {
+  if (selected === null) return [h]
+  const next = selected.includes(h) ? selected.filter(x => x !== h) : [...selected, h]
+  const all = next.length === 0 || detected.every(d => next.includes(d))
+  return all ? null : detected.filter(d => next.includes(d))
+}

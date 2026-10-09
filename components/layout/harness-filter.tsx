@@ -3,13 +3,15 @@
 import useSWR from 'swr'
 import { useHarnessFilter } from '@/hooks/use-harness-filter'
 import { HARNESS_LABELS, type Harness, type HarnessesResponse } from '@/types/harness'
+import { nextHarnesses } from '@/lib/harness-filter'
 import { cn } from '@/lib/utils'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 /**
- * One toggle per detected harness, writing `?h=`. Nothing selected and everything
- * selected both mean "all", so either clears the param. Hidden with a single harness.
+ * One toggle per detected harness, writing `?h=`. From "all", a click keeps only the
+ * clicked harness; after that clicks toggle. Nothing selected and everything selected
+ * both mean "all", so either clears the param. Hidden with a single harness.
  */
 export function HarnessFilter() {
   const { data } = useSWR<HarnessesResponse>('/api/harnesses', fetcher, { revalidateOnFocus: false })
@@ -18,11 +20,7 @@ export function HarnessFilter() {
   if (detected.length < 2) return null
 
   const selected = harnesses ?? detected
-  function toggle(h: Harness) {
-    const next = selected.includes(h) ? selected.filter(x => x !== h) : [...selected, h]
-    const all = next.length === 0 || detected.every(d => next.includes(d))
-    setHarnesses(all ? null : detected.filter(d => next.includes(d)))
-  }
+  const toggle = (h: Harness) => setHarnesses(nextHarnesses(harnesses, detected, h))
 
   return (
     <div role="group" aria-label="Harness filter" className="hidden sm:flex items-center rounded-md border border-border p-0.5">

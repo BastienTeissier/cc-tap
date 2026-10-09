@@ -10,6 +10,7 @@ import { sliceSession } from '@/lib/session-ledger'
 let tmpDir: string
 let reader: typeof import('@/lib/claude-reader')
 let previousClaudeConfigDir: string | undefined
+let previousCodexHome: string | undefined
 
 const SESSION_ID = 'abc12345-0000-0000-0000-000000000000'
 /** Earlier session that spawned sub-agents; sorted after SESSION_ID */
@@ -100,6 +101,9 @@ beforeAll(async () => {
 
   previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  // Keep a developer's real ~/.codex out of the store
+  previousCodexHome = process.env.CODEX_HOME
+  process.env.CODEX_HOME = path.join(tmpDir, 'no-codex')
   vi.resetModules()
   reader = await import('@/lib/claude-reader')
 })
@@ -107,6 +111,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
   else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir
+  if (previousCodexHome === undefined) delete process.env.CODEX_HOME
+  else process.env.CODEX_HOME = previousCodexHome
   vi.resetModules()
   await fs.rm(tmpDir, { recursive: true, force: true })
 })

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { readLiveSessions } from '@/lib/claude-reader'
+import { readLiveSessions } from '@/lib/harness/claude/reader'
 
 export const dynamic = 'force-dynamic'
 

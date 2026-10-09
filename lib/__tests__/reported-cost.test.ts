@@ -100,7 +100,7 @@ describe('ledgerMetrics with a reported cost', () => {
 // End to end, through the reader: CLAUDE_CONFIG_DIR is read at module load.
 describe('the reader', () => {
   let tmpDir: string
-  let reader: typeof import('@/lib/claude-reader')
+  let reader: typeof import('@/lib/harness/session-store')
   let previousClaudeConfigDir: string | undefined
   const at = (min: number) => new Date(T0 + min * MIN).toISOString()
   const user = (min: number) => JSON.stringify({ type: 'user', timestamp: at(min), cwd: '/Users/test/proj', message: { content: 'go' } })
@@ -123,7 +123,7 @@ describe('the reader', () => {
     previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     vi.resetModules()
-    reader = await import('@/lib/claude-reader')
+    reader = await import('@/lib/harness/session-store')
   })
 
   afterAll(async () => {

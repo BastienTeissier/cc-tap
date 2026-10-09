@@ -75,7 +75,7 @@ describe('responseKey / maxUsage / ResponseTracker', () => {
 // The three places that read usage from transcripts, on the same fixture.
 let tmpDir: string
 let previous: string | undefined
-let reader: typeof import('@/lib/claude-reader')
+let reader: typeof import('@/lib/harness/session-store')
 let replay: typeof import('@/lib/replay-parser')
 
 beforeAll(async () => {
@@ -87,7 +87,7 @@ beforeAll(async () => {
   previous = process.env.CLAUDE_CONFIG_DIR
   process.env.CLAUDE_CONFIG_DIR = tmpDir
   vi.resetModules()
-  reader = await import('@/lib/claude-reader')
+  reader = await import('@/lib/harness/session-store')
   replay = await import('@/lib/replay-parser')
 })
 

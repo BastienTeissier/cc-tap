@@ -4,7 +4,7 @@ import {
   readInstalledPlugins,
   readConfigDir,
   readSettings,
-} from '@/lib/claude-reader'
+} from '@/lib/harness/claude/reader'
 
 export const dynamic = 'force-dynamic'
 

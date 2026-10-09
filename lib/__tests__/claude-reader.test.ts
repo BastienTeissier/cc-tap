@@ -8,7 +8,7 @@ import { sliceSession } from '@/lib/session-ledger'
 // Fixture-driven test against a fake ~/.claude dir. The reader caches what it
 // reads per module instance, so it is imported fresh after env setup.
 let tmpDir: string
-let reader: typeof import('@/lib/claude-reader')
+let reader: typeof import('@/lib/harness/session-store')
 let previousClaudeConfigDir: string | undefined
 let previousCodexHome: string | undefined
 let previousCopilotHome: string | undefined
@@ -108,7 +108,7 @@ beforeAll(async () => {
   previousCopilotHome = process.env.COPILOT_HOME
   process.env.COPILOT_HOME = path.join(tmpDir, 'no-copilot')
   vi.resetModules()
-  reader = await import('@/lib/claude-reader')
+  reader = await import('@/lib/harness/session-store')
 })
 
 afterAll(async () => {
@@ -273,13 +273,13 @@ describe('getAllParsedSessions', () => {
   })
 })
 
-describe('findSessionJSONL', () => {
+describe('findSessionEntry', () => {
   it('locates the file for a session id', async () => {
-    const file = await reader.findSessionJSONL(SESSION_ID)
-    expect(file).toContain(`${SESSION_ID}.jsonl`)
+    const entry = await reader.findSessionEntry(SESSION_ID)
+    expect(entry?.path).toContain(`${SESSION_ID}.jsonl`)
   })
 
   it('returns null for unknown ids', async () => {
-    expect(await reader.findSessionJSONL('does-not-exist')).toBeNull()
+    expect(await reader.findSessionEntry('does-not-exist')).toBeNull()
   })
 })

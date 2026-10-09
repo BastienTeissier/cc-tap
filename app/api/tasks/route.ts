@@ -4,7 +4,7 @@ import {
   readTaskSessions,
   listProjectSlugs,
   listProjectJSONLFiles,
-} from '@/lib/claude-reader'
+} from '@/lib/harness/claude/reader'
 import { slugToPath } from '@/lib/decode'
 
 export const dynamic = 'force-dynamic'

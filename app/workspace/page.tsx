@@ -10,7 +10,7 @@ import {
   Sparkles, Puzzle, Bot, TerminalSquare, BookOpenText,
   Paintbrush, Workflow, Webhook, AlertTriangle,
 } from 'lucide-react'
-import type { SkillInfo, PluginInfo, ConfigFileInfo } from '@/lib/claude-reader'
+import type { SkillInfo, PluginInfo, ConfigFileInfo } from '@/lib/harness/claude/reader'
 
 const fetcher = (url: string) =>
   fetch(url).then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })

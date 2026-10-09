@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
-import { readMemories } from '@/lib/claude-reader'
+import { readMemories } from '@/lib/harness/claude/reader'
 
 export const dynamic = 'force-dynamic'
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import fs from 'fs/promises'
 import path from 'path'
 import { NextRequest } from 'next/server'
@@ -89,14 +89,27 @@ describe('Codex sessions through the API', () => {
     expect((await GET(new Request('http://localhost/'), params(CODEX))).status).toBe(404)
   })
 
-  it('serves insights, digest and wrapped over both harnesses', async () => {
-    const routes = [
-      await import('@/app/api/insights/route'),
-      await import('@/app/api/digest/route'),
-      await import('@/app/api/wrapped/route'),
-    ]
-    for (const { GET } of routes) {
-      expect((await GET(new Request('http://localhost/'))).status).toBe(200)
+  it('counts Codex sessions in insights, digest and wrapped', async () => {
+    // Their windows end today: pin it just after the fixtures
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-05T00:00:00.000Z'))
+    try {
+      const insights = await import('@/app/api/insights/route')
+      const digest = await import('@/app/api/digest/route')
+      const wrapped = await import('@/app/api/wrapped/route')
+      const get = async (route: { GET: (r: Request) => Promise<Response> }, query: string) =>
+        (await route.GET(new Request(`http://localhost/?${query}`))).json()
+
+      expect((await get(wrapped, 'year=2026')).sessions).toBe(3)
+      expect((await get(wrapped, 'year=2026&h=codex')).sessions).toBe(2)
+      expect((await get(digest, 'days=30')).sessions).toBe(3)
+      expect((await get(digest, 'days=30&h=codex')).sessions).toBe(2)
+      const all = (await get(insights, 'days=30')).window_cost
+      const codex = (await get(insights, 'days=30&h=codex')).window_cost
+      expect(codex).toBeGreaterThan(0)
+      expect(all).toBeGreaterThan(codex)
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

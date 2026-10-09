@@ -6,9 +6,11 @@ import type { ModelCostBreakdown } from '@/types/claude'
 
 interface Props {
   models: ModelCostBreakdown[]
+  /** Copilot's premium requests in the range: a session total, not split by model */
+  premiumRequests?: number
 }
 
-export function ModelTokenTable({ models }: Props) {
+export function ModelTokenTable({ models, premiumRequests }: Props) {
   const totals = models.reduce((acc, m) => ({
     input: acc.input + m.input_tokens,
     output: acc.output + m.output_tokens,
@@ -60,6 +62,11 @@ export function ModelTokenTable({ models }: Props) {
           </tr>
         </tbody>
       </table>
+      {premiumRequests !== undefined && premiumRequests > 0 && (
+        <p className="mt-2 text-[12px] text-muted-foreground font-mono">
+          Copilot premium requests: <span className="text-foreground/80 font-bold">{premiumRequests.toLocaleString()}</span>
+        </p>
+      )}
     </div>
   )
 }

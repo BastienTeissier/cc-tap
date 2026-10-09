@@ -139,7 +139,7 @@ export default function CostsPage() {
                 <CardDescription>Token usage and cost by model · {rangeLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                <ModelTokenTable models={data.models} />
+                <ModelTokenTable models={data.models} premiumRequests={data.copilot_premium_requests} />
               </CardContent>
             </Card>
 
